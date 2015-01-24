@@ -2,7 +2,7 @@ from Queue import Queue
 import proc
 import geodesy
 import math
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 import json
 
 OVL_NONE = 0
@@ -51,9 +51,78 @@ def test_poly(ix, poly):
     return terminal_types.pop()
 
 
-def rectify_poly(poly):
+def rectify_poly(bound, clockwise=True, rollover=180):
     # fix if crosses IDL or contains a pole. will not contain holes, though
-    return poly
+    _ix = lambda ix: ix%len(bound)
+    _next = lambda i: _ix(i+1)
+
+    crossings = {}
+    for i in xrange(len(bound)):
+        p0 = bound[i]
+        p1 = bound[_next(i)]
+        if abs(p0[0] - p1[0]) > 180.:
+            if p0[0] > p1[0]:
+                left, right = p0, p1
+            else:
+                left, right = p1, p0
+            to_idl = rollover - left[0]
+            lon_diff = (right[0] - left[0]) % 360.
+            crossing = left[1] + (right[1] - left[1]) * to_idl / lon_diff
+            crossings[_next(i)] = crossing
+    if not crossings:
+        # this ignores the 'negative hole' scenario (dir of poly doesn't match 'clockwise')
+        return Polygon(bound)
+
+    def crossing_point(lat, ref):
+        return (rollover - (360 if abs(rollover - ref[0]) > 180. else 0), lat)
+
+    segments = {}
+    for i, lat in crossings.iteritems():
+        ix = i
+        seg = [crossing_point(lat, bound[ix])]
+        while True:
+            seg.append(bound[ix])
+            ix = _next(ix)
+            if ix in crossings:
+                break
+        seg.append(crossing_point(crossings[ix], bound[_ix(ix-1)]))
+        segments[i] = (seg, ix)
+
+    crossings_by_lat = sorted(crossings.keys(), key=lambda i: crossings[i])
+    ix_xbl = dict((e, i) for i, e in enumerate(crossings_by_lat))
+    bounds = []
+    while segments:
+        start = None
+        ix = None
+        while True:
+            if ix is None:
+                ix, (seg, following_ix) = segments.popitem()
+                start = ix
+                subbound = list(seg)
+            else:
+                seg, following_ix = segments.pop(ix)
+                subbound.extend(seg)
+
+            end_right = (seg[-1][0] == rollover)
+            dir_up = (end_right != clockwise)
+
+            next_ix_ix = ix_xbl[following_ix] + (1 if dir_up else -1)
+            if next_ix_ix >= 0 and next_ix_ix < len(crossings_by_lat):
+                next_ix = crossings_by_lat[next_ix_ix]
+            else:
+                pole_lat = 90 if dir_up else -90
+                pole_patch = [(rollover - 360., pole_lat), (rollover, pole_lat)]
+                if end_right:
+                    pole_patch.reverse()
+                subbound.extend(pole_patch)
+                next_ix = following_ix
+
+            if next_ix == start:
+                break
+            ix = next_ix
+        bounds.append(subbound)
+
+    return MultiPolygon([Polygon(b) for b in bounds])
 
 
 def make_view_poly(p, near, far, wherever, you_are):
@@ -79,7 +148,7 @@ def make_view_poly(p, near, far, wherever, you_are):
     for s in sides:
         # TODO remove zero-length sides
         bound.extend((p[1], p[0]) for p in project_line(s, 10.)[:-1])
-    return Polygon(bound)
+    return rectify_poly(bound)
 
 def project_line(func, tolerance, maxlen=60.):
     line = []
@@ -114,7 +183,8 @@ def invmerc(mrad):
     return 2*math.atan(math.exp(mrad)) - math.pi/2
 
 def viewshed(ix, p, bearing_res, bearing0, bearing1, near_dist):
-    # TODO add dist resolution
+    # TODO add dist resolution?
+    # test if inside land before starting
     minmerc = dist_to_merc(near_dist)
     return viewshed_drilldown(ix, p, bearing_res, bearing0, bearing1, minmerc, dist_to_merc(5e6)+0*-minmerc, MaskNode())
 
@@ -293,20 +363,21 @@ def tomap(node, ref, bmin, bmax):
     path = []
     for bear, dist in node.dump(bmin, bmax):
         p = geodesy.plot(ref, bear, dist if dist > 0 else (geodesy.EARTH_MEAN_RAD*math.pi - 1000))[0]
-        path.append((p[1], p[0]))
+        path.append(p)
 
     def line(points):
         return {
             "type": "Feature",
             "geometry": {
                 "type": "LineString",
-                "coordinates": points,
+                "coordinates": [(p[1], p[0]) for p in points],
             },
             "properties": {
             }
         }
     SEGSIZE = 1000
     segments = [path[i:min(i+1+SEGSIZE, len(path))] for i in xrange(0, len(path), SEGSIZE)]
+    segments.append([geodesy.plot(ref, bear, 10000)[0] for bear in xrange(0, 361, 5)])
     data = {
         "type": "FeatureCollection",
         "features": map(line, segments),

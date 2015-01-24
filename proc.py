@@ -2,7 +2,7 @@ import shapely
 import shapely.wkt
 import shapely.ops
 import shapely.validation
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, MultiPolygon
 import sys
 import csv
 import itertools
@@ -25,14 +25,17 @@ def display(poly):
     # 3: invalid polygon, ring touch along a line
     ax = fig.add_subplot(111)
 
-    for inter in poly.interiors:
-        plot_coords(ax, inter)
-    plot_coords(ax, poly.exterior)
+    polys = poly if isinstance(poly, MultiPolygon) else [poly]
 
-    patch = PolygonPatch(poly, facecolor='#888888', edgecolor='#222222')
-    ax.add_patch(patch)
+    for poly in polys:
+        for inter in poly.interiors:
+            plot_coords(ax, inter)
+        plot_coords(ax, poly.exterior)
 
-    ax.set_aspect(1)
+        patch = PolygonPatch(poly, facecolor='#888888', edgecolor='#222222')
+        ax.add_patch(patch)
+
+    #ax.set_aspect(1)
     pyplot.show()
     
 
