@@ -124,6 +124,10 @@ def rectify_poly(bound, clockwise=True, rollover=180):
 
     return MultiPolygon([Polygon(b) for b in bounds])
 
+def swap(p):
+    return (p[1], p[0])
+def antipode(p):
+    return (-p[0], p[1]+180.)
 
 def make_view_poly(p, near, far, wherever, you_are):
     bearing0, bearing1 = wherever, you_are
@@ -146,26 +150,37 @@ def make_view_poly(p, near, far, wherever, you_are):
     ]
     bound = []
     for s in sides:
-        # TODO remove zero-length sides
-        bound.extend((p[1], p[0]) for p in project_line(s, 10.)[:-1])
-    return rectify_poly(bound)
+        seg = [swap(p) for p in project_line(s, 10.)[:-1]]
+        if bound and geodesy.distance(swap(bound[-1]), swap(seg[-1])) < .001:
+            continue
+        bound.extend(seg)
+    return rectify_poly(bound, bearing1 > bearing0)
 
 def project_line(func, tolerance, maxlen=60.):
     line = []
 
     def _proj(a, b, fa, fb):
+        lonb = geodesy.anglenorm(fb[1], 180-fa[1])
         fmid_interp = [
             .5*(fa[0] + fb[0]),
-            geodesy.anglenorm(.5*(fa[1] + geodesy.anglenorm(fb[1], 180-fa[1]))), # handle crossing of IDL
+            geodesy.anglenorm(.5*(fa[1] + lonb)),
         ]
         mid = .5 * (a + b)
         fmid = func(mid)
 
-        error = lambda: geodesy.distance(fmid, fmid_interp)
-        linlen = lambda: ((fa[0]-fb[0])**2. + (fa[1]-fb[1])**2.)**.5
-        split = (error() > tolerance or linlen() > maxlen)
+        def error(tolerance):
+            return geodesy.distance(fmid, fmid_interp) > tolerance
+        def linlen(maxlen):
+            lindist = ((fa[0]-fb[0])**2. + (fa[1]-lonb)**2.)**.5
+            if lindist > maxlen:
+                geodist = geodesy.distance(fa, fb)
+                if geodist > 100.:
+                    return True
+            return False
+        split = (error(tolerance) or linlen(maxlen))
 
         if split:
+            #print a, b, fa, fb, fmid, fmid_interp, error(), linlen()
             _proj(a, mid, fa, fmid)
             line.append(fmid)
             _proj(mid, b, fmid, fb)
@@ -183,12 +198,19 @@ def invmerc(mrad):
     return 2*math.atan(math.exp(mrad)) - math.pi/2
 
 def viewshed(ix, p, bearing_res, bearing0, bearing1, near_dist):
-    # TODO add dist resolution?
-    # test if inside land before starting
+    # test if inside land before starting?
     minmerc = dist_to_merc(near_dist)
-    return viewshed_drilldown(ix, p, bearing_res, bearing0, bearing1, minmerc, dist_to_merc(5e6)+0*-minmerc, MaskNode())
+    maxmerc = dist_to_merc(.5*EARTH_CIRCUMF)
+    zeromerc = dist_to_merc(0.)
+    result = viewshed_drilldown(ix, p, bearing_res, bearing0, bearing1, minmerc, maxmerc, MaskNode())
+    # and past antipode... (think bearing offset will break for N/S poles)
+    result = viewshed_drilldown(ix, antipode(p), bearing_res, 180.-bearing0, 180.-bearing1, zeromerc, maxmerc, result)
+    return result
 
+EARTH_CIRCUMF = geodesy.EARTH_MEAN_RAD * 2. * math.pi
 def dist_to_merc(dist):
+    MIN_DIST = 1.
+    dist = min(max(dist, MIN_DIST), .5*EARTH_CIRCUMF - MIN_DIST)
     return merc(dist/geodesy.EARTH_MEAN_RAD - math.pi/2)
 def merc_to_dist(mrad):
     return (invmerc(mrad) + math.pi/2) * geodesy.EARTH_MEAN_RAD
@@ -254,18 +276,29 @@ def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
         print '  masked'
         return
 
-    bspan = bhi - blo
-    # split based on lonspan
-    # split based on aspect ratio
-    """
-    if bearing_span > 180.:
-        split_horiz
-    aspect = (ymax - ymin) / math.radians(bearing_span)
-    if aspect > 2**.5:
-        split_vert
-    elif aspect < 2**-.5:
-        split horiz
-    """
+    bspan = abs(bhi - blo)
+    split_horiz, split_vert = False, False
+    if bspan > 180.:
+        split_horiz = True
+    else:
+        aspect = (dhi - dlo) / math.radians(bspan)
+        if aspect > 2**.5 + 1e-6:
+            split_vert = True
+        elif aspect < 2**-.5 - 1e-6:
+            split_horiz = True
+
+    if split_horiz:
+        print 'split-h'
+        bmid = .5*(blo+bhi)
+        mask.setLeft(viewshed_drilldown(ix, p, bearing_res, blo, bmid, dlo, dhi, mask.getLeft()))
+        mask.setRight(viewshed_drilldown(ix, p, bearing_res, bmid, bhi, dlo, dhi, mask.getRight()))
+        return mask
+    if split_vert:
+        print 'split-v'
+        dmid = .5*(dlo+dhi)
+        viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dmid, mask)
+        viewshed_drilldown(ix, p, bearing_res, blo, bhi, dmid, dhi, mask)
+        return mask
 
     view = make_view_poly(p, merc_to_dist(dlo), merc_to_dist(dhi), blo, bhi)
     hit = test_poly(ix, view)
@@ -275,7 +308,11 @@ def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
 
     if bspan <= bearing_res:
         print '  terminal %s' % hit
-        mask.setVal(merc_to_dist(dlo))
+        dist = merc_to_dist(dlo)
+        if bhi < blo:
+            # past antipode
+            dist += .5*EARTH_CIRCUMF
+        mask.setVal(dist)
     else:
         print '  recurse'
         bmid = .5*(blo+bhi)
@@ -285,68 +322,6 @@ def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
         mask.setLeft(viewshed_drilldown(ix, p, bearing_res, blo, bmid, dmid, dhi, mask.getLeft()))
         mask.setRight(viewshed_drilldown(ix, p, bearing_res, bmid, bhi, dmid, dhi, mask.getRight()))
     return mask
-
-
-def render(ix, depth):
-    dim = 2**depth
-    BITMAP = [[0 for i in xrange(dim)] for j in xrange(dim)]
-    def paint(val, z, (x, y)):
-        c = {-1: 0, 0: 128, 1: 255}[val]
-        celldim = 2**(depth - z)
-        for i in xrange(celldim):
-            for j in xrange(celldim):
-                BITMAP[y*celldim + j][x*celldim + i] = c
-    proc_index(ix, paint)
-
-    import os
-    import tempfile
-    raw = tempfile.mktemp('.grey')
-    img = tempfile.mktemp('.png')
-
-    with open(raw, 'w') as f:
-        f.write(''.join(''.join(chr(col) for col in row) for row in BITMAP))
-    os.popen('convert -size %dx%d -depth 8 gray:%s %s' % (dim, dim, raw, img))
-    os.popen('gnome-open %s' % img)
-
-
-
-
-def poc(ix, p, near, far, b0, b1, x, y):
-    BITMAP = [[0 for i in xrange(x)] for j in xrange(y)]
-
-    deltad = (far - near) / float(y)
-    deltab = (b1 - b0) / float(x)
-    for j in xrange(y-1, -1, -1):
-        for i in xrange(x):
-            print i, j
-            nr = near + deltad * j
-            fr = near + deltad * (j + 1)
-            left = b0 + deltab * i
-            right = b0 + deltab * (i + 1)
-            view = make_view_poly(p, nr, fr, left, right)
-
-            res = test_poly(ix, view)
-            BITMAP[y-1-j][i] = {-1: 0, 0: 128, 1: 255}[res]
-
-    import os
-    import tempfile
-    raw = tempfile.mktemp('.grey')
-    img = tempfile.mktemp('.png')
-    with open(raw, 'w') as f:
-        f.write(''.join(''.join(chr(col) for col in row) for row in BITMAP))
-    os.popen('convert -size %dx%d -depth 8 gray:%s %s' % (x, y, raw, img))
-    os.popen('gnome-open %s' % img)
-
-# main algo
-
-
-
-def showview(poly):
-    with open('/tmp/aaa', 'w') as f:
-        f.write('\n'.join('%s %s' % c for c in poly.exterior.coords))
-    from subprocess import Popen, PIPE
-    p = Popen('gnuplot', stdin=PIPE)
-    p.stdin.write('plot "/tmp/aaa" using 2:1 with lines\n')
 
 def showpano(node, min, max):
     with open('/tmp/bbb', 'w') as f:
@@ -361,9 +336,14 @@ def showpano(node, min, max):
 
 def tomap(node, ref, bmin, bmax):
     path = []
+    prevdist = None
+    antip = antipode(ref)
     for bear, dist in node.dump(bmin, bmax):
         p = geodesy.plot(ref, bear, dist if dist > 0 else (geodesy.EARTH_MEAN_RAD*math.pi - 1000))[0]
+        if prevdist is not None and (dist > .5*EARTH_CIRCUMF) != (prevdist > .5*EARTH_CIRCUMF):
+            path.append(antip)
         path.append(p)
+        prevdist = dist
 
     def line(points):
         return {

@@ -22,7 +22,6 @@ def display(poly):
     
     fig = pyplot.figure(1, figsize=[5, 5], dpi=90)
 
-    # 3: invalid polygon, ring touch along a line
     ax = fig.add_subplot(111)
 
     polys = poly if isinstance(poly, MultiPolygon) else [poly]
@@ -37,12 +36,12 @@ def display(poly):
 
     #ax.set_aspect(1)
     pyplot.show()
-    
 
-def load():
+COAST_DATA = '/home/drew/tmp/land_polygons.csv'
+def load(path):
     csv.field_size_limit(sys.maxsize)
     data = []
-    with open('/home/drew/tmp/land_polygons.csv') as f:
+    with open(path) as f:
         r = csv.DictReader(f)
         for row in r:
             poly = shapely.wkt.loads(row['WKT'])
@@ -56,6 +55,7 @@ def load():
                     pass
                 else:
                     assert False, poly
+            set_complexity(poly)
             data.append(poly)
     return data
 
@@ -76,9 +76,22 @@ def pr(s):
     sys.stdout.write(s)
     sys.stdout.flush()
 
+def poly_complexity(poly):
+    cmplx = lambda ring: len(ring.coords)
+    num_vertices = lambda p: cmplx(p.exterior) + sum(map(cmplx, p.interiors))
+    if isinstance(poly, MultiPolygon):
+        return sum(map(num_vertices, poly))
+    else:
+        return num_vertices(poly)
+
+def set_complexity(poly):
+    if any(isinstance(poly, t) for t in (Polygon, MultiPolygon)):
+        poly.complexity = poly_complexity(poly)
+
 def test(data, quad, merge=False):
     if merge and len(data) > 1:
         data = [shapely.ops.cascaded_union(data)]
+        set_complexity(data[0])
 
     subdata = []
     for poly in data:
@@ -86,12 +99,17 @@ def test(data, quad, merge=False):
             if quad.within(poly):
                 return True
             else:
-                subdata.append(quad.intersection(poly))
+                if not hasattr(poly, 'complexity') or poly.complexity > 10:
+                    subpoly = quad.intersection(poly)
+                    set_complexity(subpoly)
+                else:
+                    subpoly = poly
+                subdata.append(subpoly)
     return subdata if subdata else False
 
 
-def quadtree(ext, maxdepth, data, consolidate_final=True, depth=0):
-    print depth, ext.x0, ext.y0, ext.x1-ext.x0, ext.y1-ext.y0, len(data)
+def quadtree(ext, maxdepth, data, consolidate_final=True, depth=0, ix=''):
+    print (ix or '~'), len(data)
 
     result = test(data, mkquad(ext), consolidate_final and depth == maxdepth)
     if result is False:
@@ -102,7 +120,7 @@ def quadtree(ext, maxdepth, data, consolidate_final=True, depth=0):
         if depth == maxdepth:
             return 0
         else:
-            children = [quadtree(child, maxdepth, result, consolidate_final, depth + 1) for child in quadchildren(ext)]
+            children = [quadtree(child, maxdepth, result, consolidate_final, depth + 1, ix+s) for child, s in zip(quadchildren(ext), '0123')]
             if children == [1, 1, 1, 1]:
                 # can happen because polygons are only consolidated once we hit max_depth
                 children = 1
@@ -116,12 +134,10 @@ def proc_index(node, handler, depth=0, tile=(0, 0)):
     else:
         handler(node, depth, tile)
 
-def run(data):
-    DEPTH = 15
-    EXTENT = Extent(-180, 180, 90, -270)
-    #EXTENT = Extent(0, 45, 10, -35)
+def build_index(raw, extent, max_depth):
+    return quadtree(extent, max_depth, raw, max_depth > 8)
 
-    return quadtree(EXTENT, DEPTH, data, DEPTH > 8)
+GLOBAL = Extent(-180, 180, 90, -270)
 
 def render(ix, depth):
     dim = 2**depth
