@@ -204,7 +204,7 @@ def viewshed(ix, p, bearing_res, bearing0, bearing1, near_dist):
     zeromerc = dist_to_merc(0.)
     result = viewshed_drilldown(ix, p, bearing_res, bearing0, bearing1, minmerc, maxmerc, MaskNode())
     # and past antipode... (think bearing offset will break for N/S poles)
-    result = viewshed_drilldown(ix, antipode(p), bearing_res, 180.-bearing0, 180.-bearing1, zeromerc, maxmerc, result)
+    viewshed_drilldown(ix, antipode(p), bearing_res, 180.-bearing0, 180.-bearing1, zeromerc, maxmerc, result)
     return result
 
 EARTH_CIRCUMF = geodesy.EARTH_MEAN_RAD * 2. * math.pi
@@ -256,16 +256,27 @@ class MaskNode(object):
             self.right.setVal(val)
         self.complete = True
 
-    def dump(self, min, max):
+    def dump(self, min, max, res=None):
         mid = .5*(min + max)
+        span = max - min
+        val = None
         if self.null():
-            yield (mid, -1)
+            val = -1
         elif self.val is not None:
-            yield (mid, self.val)
+            val = self.val
+
+        if val is not None:
+            if res is None or span <= res:
+                yield (mid, span, val)
+            else:
+                for e in self.dump(min, mid, res):
+                    yield e
+                for e in self.dump(mid, max, res):
+                    yield e
         else:
-            for e in self.left.dump(min, mid):
+            for e in self.left.dump(min, mid, res):
                 yield e
-            for e in self.right.dump(mid, max):
+            for e in self.right.dump(mid, max, res):
                 yield e
 
 def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
@@ -325,7 +336,7 @@ def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
 
 def showpano(node, min, max):
     with open('/tmp/bbb', 'w') as f:
-        for bear, dist in node.dump(min, max):
+        for bear, width, dist in node.dump(min, max):
             if dist < 0:
                 f.write('\n')
             else:
@@ -338,7 +349,7 @@ def tomap(node, ref, bmin, bmax):
     path = []
     prevdist = None
     antip = antipode(ref)
-    for bear, dist in node.dump(bmin, bmax):
+    for bear, width, dist in node.dump(bmin, bmax):
         p = geodesy.plot(ref, bear, dist if dist > 0 else (geodesy.EARTH_MEAN_RAD*math.pi - 1000))[0]
         if prevdist is not None and (dist > .5*EARTH_CIRCUMF) != (prevdist > .5*EARTH_CIRCUMF):
             path.append(antip)
@@ -372,3 +383,28 @@ def tomap(node, ref, bmin, bmax):
     with open('/tmp/test.kml', 'w') as f:
         f.write(kml)
     os.popen('gnome-open /tmp/test.kml')
+
+def dump(node, p, minres, start, end, mindist):
+    postings = list(node.dump(start, end, minres))
+    res = postings[0][1]
+    data = {
+        'origin': p,
+        'range': [start, end],
+        'res': res,
+        'min_dist': mindist,
+        'postings': [k[2] for k in postings],
+    }
+    import tempfile
+    path = tempfile.mktemp()
+    with open(path, 'w') as f:
+        json.dump(data, f, indent=True)
+    return path
+
+def _vs(ix, p, bearing_res, bearing0, bearing1, near_dist):
+    result = viewshed(ix, p, bearing_res, bearing0, bearing1, near_dist)
+    return {
+        'result': result,
+        'map': lambda: tomap(result, p, bearing0, bearing1),
+        'plot': lambda: showpano(result, bearing0, bearing1),
+        'dump': lambda: dump(result, p, bearing_res, bearing0, bearing1, near_dist),
+    }
