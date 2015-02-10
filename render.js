@@ -1,11 +1,11 @@
 function init() {
-    render(DATA_CPT, 4096, 800);
+    render(DATA_CM, 3000, 800);
 }
 
 function render(data, width, height) {
     var c = mk_canvas(data.postings.length, height)
     var ctx = c.context;
-    $('body').append(c.canvas);
+    //$('body').append(c.canvas);
 
     var logmin = Math.log(data.min_dist);
     var logmax = Math.log(2*Math.PI * 6371009.);
@@ -22,10 +22,14 @@ function render(data, width, height) {
             var k = (logdist - logmin) / (logmax - logmin);
             var y = height * k;
             var sat = SATMIN * k + SATMAX * (1-k);
-            ctx.fillStyle = 'hsl(120, ' + (100.*sat) + '%, 50%)';
+            var hue = 120; //(i / data.postings.length) * 360.;
+            ctx.fillStyle = 'hsl(' + hue + ', ' + (100.*sat) + '%, 50%)';
             ctx.fillRect(i, y, 1, height - y);
         }
     }
+
+    var c2 = mk_canvas(data.postings.length, height)
+    var ctx2 = c2.context;
 
     for (var i = 0; i < data.postings.length; i++) {
         var dist0 = data.postings[i];        
@@ -42,30 +46,35 @@ function render(data, width, height) {
             var pixelw = data.postings.length / width;
             //var weight = 3 * Math.sqrt(logdiff) / (logmax - logmin);
             var weight = 6 * logdiff / (logmax - logmin);
-            var _w = pixelw * Math.min(weight, 1.);
+            var _w = pixelw * Math.min(weight, 1.) / 3;
             var x0 = i+1 - (dist0 > dist1 ? _w : 0);
-            ctx.fillStyle = '#000';
-            ctx.fillRect(x0, y, _w, height);
-
-            var _ww = _w * .5;
-            var y2 = height * (Math.log(closer) - logmin) / (logmax - logmin);
-            //ctx.fillRect(i+1-.5*_ww, y2, _ww, height);
+            ctx2.fillStyle = '#000';
+            ctx2.fillRect(x0, y, _w, height);
         }
 
     }
 
-    var trim0 = Math.floor(Math.log(data.postings.length / width) / Math.LN2);
-    var cprev = c;
-    for (var trim = trim0; trim >= 0; trim--) {
-        var ctrim = mk_canvas(Math.pow(2, trim) * width, height);
-        //$('body').append(ctrim.canvas);
-        ctrim.context.drawImage(cprev.canvas, 0, 0, ctrim.canvas.width, ctrim.canvas.height);
-        cprev = ctrim;
+    var downsize = function(src) {
+        var cdest = mk_canvas(width, height);
+        pica.WW = false;
+        pica.resizeCanvas(src.canvas, cdest.canvas, {
+            quality: 3,
+            alpha: true,
+            unsharpAmount: 0,
+            unsharpThreshold: 0,
+            transferable: false //true
+        }, function (err) {});
+        return cdest;
     }
 
-    c = cprev;
-    ctx = c.context;
-    $('body').append(c.canvas);
+    var base = downsize(c);
+    $('body').append(base.canvas);
+    var edges = downsize(c2);
+    $('body').append(edges.canvas);
+    for (var i = 0; i < 2; i++) {
+        base.context.drawImage(edges.canvas, 0, 0, width, height);
+    }
+
 }
 
 function mk_canvas(w, h) {
