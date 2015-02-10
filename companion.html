@@ -4,24 +4,35 @@
 <script src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.6.0/underscore-min.js"></script>
 -->
 <script src="jquery.js"></script>
-<script src="pica.js"></script>
-<script src="geodesy.js"></script>
 <script src="render.js"></script>
+
+<script src="//cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/leaflet.js"></script>
+<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/leaflet.css">
 
 <script>
 
-$(document).ready(init);
+$(document).ready(init_companion);
 
 </script>
+
+</head>
+<body>
 
 <style>
 
 body {
-  background-image: url(http://images0.pixlis.com/background-image-checkers-chequered-checkered-squares-seamless-tileable-wild-sand-light-grey-236emw.png);
+  margin: 0;
+  height: 100%;
 }
 
-canvas {
-  image-rendering: optimizeQuality;
+#map {
+  width: 100%;
+  height: 100%;
 }
 
 </style>
+
+<div id="map"></div>
+
+</body>
+</html>
