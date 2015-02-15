@@ -1,9 +1,10 @@
 from Queue import Queue
-import proc
+import gen_index as gi
 import geodesy
 import math
 from shapely.geometry import Polygon, MultiPolygon
 import json
+import collections
 
 OVL_NONE = 0
 OVL_PARTIAL = 1
@@ -15,19 +16,41 @@ TYPE_MIXED = 0
 
 # worried about 10m resolution if 'near' boundary is close
 
-def test_poly(ix, poly):
+def test_poly(ix, poly, terminal_test):
     # TODO trim poly on drilldown?
     # TODO return largest enclosing quad?
 
     fringe = Queue()
     terminal_types = set()
+    areas = set()
+    pending_areas = collections.defaultdict(set)
+    is_mixed = False
 
-    fringe.put((ix, proc.ROOT))
+    def enqueue(node, extent):
+        fringe.put((node, extent))
+        for pa in node.aux_partial:
+            if pa not in areas:
+                pending_areas[pa].add(node)
+    def dequeue():
+        node, ext = fringe.get()
+        for pa in node.aux_partial:
+            if pa not in areas:
+                pending_areas[pa].remove(node)
+                if not pending_areas[pa]:
+                    del pending_areas[pa]
+        return node, ext
+    def add_areas(aa):
+        areas.update(aa)
+        for a in aa:
+            if a in pending_areas:
+                del pending_areas[a]
+
+    enqueue(ix, gi.ROOT)
 
     while not fringe.empty():
-        node, ext = fringe.get()
-        is_terminal = not hasattr(node, '__iter__')
-        quad = proc.mkquad(ext)
+        node, ext = dequeue()
+        is_terminal = (node.children is None)
+        quad = gi.mkquad(ext)
 
         if quad.intersects(poly):
             if quad.within(poly):
@@ -37,18 +60,29 @@ def test_poly(ix, poly):
         else:
             status = OVL_NONE
 
+        if status != OVL_NONE:
+            add_areas(node.aux_full)
+
         if status == OVL_NONE:
             continue
         elif is_terminal or status == OVL_FULL:
-            if not is_terminal or node == TYPE_MIXED:
-                return TYPE_MIXED
-            terminal_types.add(node)
+            add_areas(node.aux_partial)
+
+            if not is_terminal or node.land == gi.COVERAGE_PARTIAL:
+                is_mixed = True
+            terminal_types.add(node.land)
             if len(terminal_types) > 1:
-                return TYPE_MIXED
+                is_mixed = True
         elif status == OVL_PARTIAL:
-            for subnode, subext in zip(node, proc.quadchildren(ext)):
-                fringe.put((subnode, subext))
-    return terminal_types.pop()
+            for subnode, subext in zip(node.children, gi.quadchildren(ext)):
+                if not subnode:
+                    subnode = gi.QTNode()
+                    subnode.land = gi.COVERAGE_NONE
+                enqueue(subnode, subext)
+
+        if is_mixed and (not terminal_test or not pending_areas):
+            return TYPE_MIXED, areas
+    return terminal_types.pop(), areas
 
 
 def rectify_poly(bound, clockwise=True, rollover=180):
@@ -261,7 +295,7 @@ class MaskNode(object):
         span = max - min
         val = None
         if self.null():
-            val = -1
+            val = None
         elif self.val is not None:
             val = self.val
 
@@ -312,18 +346,19 @@ def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
         return mask
 
     view = make_view_poly(p, merc_to_dist(dlo), merc_to_dist(dhi), blo, bhi)
-    hit = test_poly(ix, view)
+    terminal = (bspan <= bearing_res)
+    hit, areas = test_poly(ix, view, terminal)
     if hit == TYPE_WATER:
         print '  water'
         return
 
-    if bspan <= bearing_res:
+    if terminal:
         print '  terminal %s' % hit
         dist = merc_to_dist(dlo)
         if bhi < blo:
             # past antipode
             dist += .5*EARTH_CIRCUMF
-        mask.setVal(dist)
+        mask.setVal((dist, areas))
     else:
         print '  recurse'
         bmid = .5*(blo+bhi)
@@ -349,7 +384,7 @@ def tomap(node, ref, bmin, bmax):
     path = []
     prevdist = None
     antip = antipode(ref)
-    for bear, width, dist in node.dump(bmin, bmax):
+    for bear, width, (dist, areas) in node.dump(bmin, bmax):
         p = geodesy.plot(ref, bear, dist if dist > 0 else (geodesy.EARTH_MEAN_RAD*math.pi - 1000))[0]
         if prevdist is not None and (dist > .5*EARTH_CIRCUMF) != (prevdist > .5*EARTH_CIRCUMF):
             path.append(antip)
@@ -392,7 +427,7 @@ def dump(node, p, minres, start, end, mindist):
         'range': [start, end],
         'res': res,
         'min_dist': mindist,
-        'postings': [k[2] for k in postings],
+        'postings': [[k[2][0], list(k[2][1])] for k in postings],
     }
     import tempfile
     path = tempfile.mktemp()
