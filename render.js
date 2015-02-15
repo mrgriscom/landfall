@@ -8,13 +8,14 @@ function init() {
     });
 }
 
-NUM_COLORS = 6
-STEPS = 1000
+NUM_COLORS = 6;
+STEPS = 1000;
 
 function loadColors(after) {
     WS = new WebSocket('ws://localhost:8888/socket')
     WS.onmessage = function(e) {
         COLORS = JSON.parse(e.data);
+        COLORS = _.shuffle(COLORS); // randomize the hue order
         after();
     };
     setTimeout(function() {
@@ -40,37 +41,53 @@ function render(data, width, height) {
 
     console.log(logmin, logmax);
 
-    var _admins = {};
+    var admin_by_px = [];
     for (var i = 0; i < data.postings.length; i++) {
-        var _a = data.postings[i][1];
-        $.each(_a, function(i, e) {
-            _admins[e] = true;
-        });
+        var _admins = data.postings[i][1];
+        var admin = (_admins.length > 0 ? _admins[Math.floor(Math.random() * _admins.length)] : -1);
+        admin_by_px.push(admin);
     }
-    var admins = [];
-    $.each(_admins, function(k, v) {
-        admins.push(+k);
-    });
-    admins.push(-1);
-    console.log(admins);
 
-    var colors = [];
-    for (var i = 0; i < admins.length; i++) {
-        colors.push(i % NUM_COLORS);
+    // determine administrative areas that appear
+    var _admins = {};
+    for (var i = 0; i < admin_by_px.length; i++) {
+        _admins[admin_by_px[i]] = true;
     }
-    colors = _.shuffle(colors);
+    var admins = _.map(_.keys(_admins), function(k) { return +k; });
+
+    // build adjacency graph
+    var adj = {};
+    var adjedge = function(a, b) {
+        if (!adj[a]) {
+            adj[a] = {};
+        }
+        adj[a][b] = true;
+    };
+    for (var i = 0; i < admin_by_px.length; i++) {
+        var a0 = admin_by_px[i];
+        var a1 = admin_by_px[(i + 1) % admin_by_px.length];
+        if (a0 == a1) {
+            continue;
+        }
+        adjedge(a0, a1);
+        adjedge(a1, a0);
+    }
+    _.each(adj, function(v, k) {
+        adj[k] = _.map(_.keys(v), function(k) { return +k; });
+    });
+
+    var colors = assign_colors(NUM_COLORS, admins, adj);
     console.log(colors);
 
     for (var i = 0; i < data.postings.length; i++) {
         var dist = data.postings[i][0];
-        var _admins = data.postings[i][1];
-        var admin = (_admins.length > 0 ? _admins[Math.floor(Math.random() * _admins.length)] : -1);
+        var admin = admin_by_px[i];
         if (dist >= 0) {
             var logdist = Math.log(dist);
             var k = Math.max((logdist - logmin) / (logmax - logmin), 0);
             var y = height * k;
 
-            var C = COLORS[colors[admins.indexOf(admin)]][Math.floor(k * (STEPS - 1))];
+            var C = COLORS[colors[admin]][Math.floor(k * (STEPS - 1))];
             ctx.fillStyle = C;
             ctx.fillRect(i, y, 1, height - y);
         }
@@ -197,7 +214,57 @@ function setupMap(data, canv) {
     });
 }
 
+function assign_colors(num_colors, nodes, adj) {
+    var matrix = [];
+    for (var i = 0; i < nodes.length; i++) {
+        var row = [];
+        for (var j = 0; j < nodes.length; j++) {
+            row.push(0);
+        }
+        matrix.push(row);
+    }
+    _.each(adj, function(v, k) {
+        k = +k;
+        _.each(v, function(e, i) {
+            matrix[nodes.indexOf(k)][nodes.indexOf(e)] = 1;
+        });
+    });
 
+    var coloring = colorizing(matrix);
+    var colorcount = _.max(coloring);
+    for (var i = 0; i < coloring.length; i++) {
+        coloring[i] -= 1;
+    }
+
+    // we have randomized the hue ordering, so don't need to
+    // worry about any biasing effect
+    if (colorcount > num_colors) {
+        // too many colors
+        for (var i = 0; i < coloring.length; i++) {
+            coloring[i] = coloring[i] % num_colors;
+        }
+    } else if (colorcount < num_colors) {
+        // too few colors
+        var remap = {};
+        for (var i = 0; i < num_colors; i++) {
+            var c = i % colorcount;
+            if (!remap[c]) {
+                remap[c] = [];
+            }
+            remap[c].push(i);
+        }
+        for (var i = 0; i < coloring.length; i++) {
+            var opts = remap[coloring[i]];
+            coloring[i] = opts[Math.floor(Math.random() * opts.length)];
+        }
+    }
+
+    var colormap = {};
+    for (var i = 0; i < nodes.length; i++) {
+        colormap[nodes[i]] = coloring[i];
+    }
+    return colormap;
+}
 
 function init_companion() {
     var map = new L.Map('map', {
@@ -233,3 +300,124 @@ function companion_update(map, pos) {
     map.setView(pos);
 }
 
+
+
+
+
+
+function colorizing(a){  
+  // this function finds the unprocessed vertex of which degree is maximum
+  var MaxDegreeVertex = function(){
+    var max = -1;
+    var max_i;
+    for (var i =0; i<a.length; i++){
+      if ((color[i] === 0) && (degree[i]>max)){
+        max = degree[i];
+        max_i = i;
+      }
+    }
+    return max_i;
+  };
+
+  // find the vertex in NN of which degree is maximum
+  var MaxDegreeInNN = function(){
+    var max = -1;
+    var max_i, i;
+    for (var k=0; k<NN.length; k++){
+      i = NN[k];
+      if ((color[i] === 0) && (degree[i]>max)){
+        max = degree[i];
+        max_i = i;
+      }
+    }
+    return max_i;
+  };
+
+  // this function updates NN array
+  var UpdateNN = function(ColorNumber){
+    NN = [];
+    for (var i=0; i<a.length; i++){
+      if (color[i] === 0){
+        NN.push(i);
+      }
+    }
+    for (var i=0; i<a.length; i++){
+      if (color[i] === ColorNumber){
+        for (var j=0; j<NN.length; j++){
+          while (a[i][NN[j]] === 1){
+            NN.splice(j,1)
+          }
+        }
+      }
+    }
+  };
+
+  // this function will find suitable y from NN
+  var FindSuitableY = function(ColorNumber,VerticesInCommon){
+    var temp,tmp_y,y=0;
+    var scanned = [];
+    VerticesInCommon = 0;
+    for (var i=0; i<NN.length; i++) {
+      tmp_y = NN[i];
+      temp = 0;
+      for (var f=0; f<a.length; f++){
+        scanned[f] = 0;
+      }
+      for (var x=0; x<a.length; x++){
+        if (color[x] === ColorNumber){
+          for (var k=0; k<a.length; k++){
+            if (color[k] === 0 && scanned[k] === 0){
+              if (a[x][k] === 1 && a[tmp_y][k] === 1){
+                temp ++;
+                scanned[k] = 1;
+              }
+            }
+          }
+        }
+      }
+      if (temp > VerticesInCommon){
+        VerticesInCommon = temp;
+        y = tmp_y;
+      }
+    }
+    return [y,VerticesInCommon];
+  };
+
+  var color = [];
+  var degree = [];
+  var NN = [];
+
+  for (var i=0; i<a.length; i++){
+    color[i] = 0;
+    degree[i] = 0;
+    for (var j = 0; j<a.length; j++){
+      if (a[i][j] === 1){
+        degree[i] ++;
+      }
+    }
+  }
+  
+  var x,y;
+  var result;
+  var ColorNumber = 0;
+  var VerticesInCommon = 0;
+  var unprocessed = a.length;
+  while (unprocessed>0){
+    x = MaxDegreeVertex();
+    color[x] = ++ColorNumber;
+    unprocessed --;
+    UpdateNN(ColorNumber);
+    while (NN.length>0){
+      result = FindSuitableY(ColorNumber, VerticesInCommon);
+      y = result[0];
+      VerticesInCommon = result[1];
+      if (VerticesInCommon === 0){
+        y = MaxDegreeInNN();
+      }
+      color[y] = ColorNumber;
+      unprocessed --;
+      UpdateNN(ColorNumber);
+    }
+  }
+  return color
+};
