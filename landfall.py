@@ -1,5 +1,5 @@
 from Queue import Queue
-import proc
+import gen_index as proc
 import geodesy
 import math
 from shapely.geometry import Polygon, MultiPolygon
