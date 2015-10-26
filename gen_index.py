@@ -2,7 +2,7 @@ import shapely
 import shapely.wkt
 import shapely.ops
 import shapely.validation
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, box
 import sys
 import csv
 import itertools
@@ -11,6 +11,16 @@ import tempfile
 import json
 
 Extent = collections.namedtuple('Extent', 'x0 x1 y0 y1')
+
+def explode_poly(poly):
+    if isinstance(poly, Polygon):
+        return [poly]
+    elif isinstance(poly, MultiPolygon):
+        return poly
+    elif isinstance(poly, GeometryCollection):
+        return [e for e in poly if isinstance(e, Polygon)]
+    else:
+        return []
 
 def display(poly):
     from matplotlib import pyplot
@@ -26,9 +36,7 @@ def display(poly):
 
     ax = fig.add_subplot(111)
 
-    polys = poly if isinstance(poly, MultiPolygon) else [poly]
-
-    for poly in polys:
+    for poly in explode_poly(poly):
         for inter in poly.interiors:
             plot_coords(ax, inter)
         plot_coords(ax, poly.exterior)
@@ -39,8 +47,9 @@ def display(poly):
     #ax.set_aspect(1)
     pyplot.show()
 
-COAST_DATA = '/home/drew/tmp/land_polygons.csv'
-ADMIN_DATA = '/home/drew/tmp/admin_polygons.csv'
+COAST_DATA = '/tmp/coastcsv/land_polygons.csv'
+#COAST_DATA = '/home/drew/tmp/land_polygons.csv'
+#ADMIN_DATA = '/home/drew/tmp/admin_polygons.csv'
 def load(path, separate=False):
     csv.field_size_limit(sys.maxsize)
     data = {} if separate else []
@@ -66,7 +75,7 @@ def load(path, separate=False):
     return data
 
 def mkquad(ext):
-    return Polygon([(ext.x0, ext.y0), (ext.x1, ext.y0), (ext.x1, ext.y1), (ext.x0, ext.y1)])
+    return box(ext.x0, ext.y0, ext.x1, ext.y1)
 
 ROOT = Extent(-180, 180, 90, -270)
 
@@ -91,21 +100,17 @@ def poly_complexity(poly):
         return num_vertices(poly)
 
 def set_complexity(poly):
-    if any(isinstance(poly, t) for t in (Polygon, MultiPolygon)):
-        poly.complexity = poly_complexity(poly)
+    poly.complexity = sum(map(poly_complexity, explode_poly(poly)))
 
-def test(data, quad, merge=False):
-    if merge and len(data) > 1:
-        data = [shapely.ops.cascaded_union(data)]
-        set_complexity(data[0])
-
+SUBDIV_CUTOFF = 10
+def test(data, quad):
     subdata = []
     for poly in data:
         if quad.intersects(poly):
             if quad.within(poly):
                 return True
             else:
-                if not hasattr(poly, 'complexity') or poly.complexity > 10:
+                if poly.complexity > SUBDIV_CUTOFF and not quad.contains(poly):
                     subpoly = quad.intersection(poly)
                     set_complexity(subpoly)
                 else:
@@ -131,62 +136,23 @@ class QTNode(object):
             val = tuple(val) if val else None
             setattr(self, attr, val)
 
-def quadtree(ext, maxdepth, data, extras, consolidate_final=True, depth=0, ix=''):
-    print (ix or '~'), len(data), len(extras)
+def quadtree(ext, maxdepth, data, depth=0, ix=''):
+    print (ix or '~'), len(data)
     ret = QTNode()
 
     quad = mkquad(ext)
-    result = test(data, quad, consolidate_final and depth == maxdepth)
+    result = test(data, quad)
     if result is False:
         # current extent is all water
         return None
 
-    # check admin boundaries against current extent
-    resext = dict((k, test(v, quad)) for k, v in extras.iteritems())
-    child_extras = {}
-    for k, v in resext.iteritems():
-        if v is True:
-            ret.aux_full.append(k)
-        elif v is not False:
-            ret.aux_partial.append(k)
-            child_extras[k] = v
-
-    if result is True and (depth == maxdepth or not ret.aux_partial):
+    if result is True:
         ret.land = COVERAGE_FULL
     else:
         if depth == maxdepth:
             ret.land = COVERAGE_PARTIAL
-
-            # must re-check admin boundaries against actual extent of land (in case they just
-            # border but don't overlap)
-            if len(data) == 1: # ignore if not merged
-                land_area = quad.intersection(data[0])
-                ret.aux_partial = filter(lambda i: land_area.intersection(extras[i][0]).area > 0, ret.aux_partial)
         else:
-            if result is True:
-                result = [quad]
-            children = [quadtree(child, maxdepth, result, child_extras, consolidate_final, depth + 1, ix+s) for child, s in zip(quadchildren(ext), '0123')]
-
-            # suppress children if they're all identical (can happen since we split land polygons)
-            consolidate = False
-            if all(ch is not None and ch.land == COVERAGE_FULL for ch in children):
-                base = children[0]
-                if all(base.aux_full == ch.aux_full and base.aux_partial == ch.aux_partial for ch in children[1:]):
-                    consolidate = True
-
-            if consolidate:
-                ret = children[0]
-            else:
-                ret.children = children
-
-                # push admin full coverages up one level if possible
-                children = filter(None, children)
-                redundant = reduce(lambda a, b: a&b, (set(ch.aux_full or []) for ch in children))
-                if redundant:
-                    ret.aux_full.extend(redundant)
-                    for ch in children:
-                        ch.aux_full = list(set(ch.aux_full) - redundant)
-                        ch.tidy_up()
+            ret.children = [quadtree(child, maxdepth, result, depth + 1, ix + s) for child, s in zip(quadchildren(ext), '0123')]
 
     ret.tidy_up()
     return ret
@@ -205,14 +171,16 @@ def load_ix(path):
         return pickle.load(f)
 
 def proc_index(node, handler, depth=0, tile=(0, 0)):
-    if hasattr(node, '__iter__'):
-        for child, subtile in zip(node, [(2*tile[0] + i, 2*tile[1] + j) for j in xrange(2) for i in xrange(2)]):
+    if not node:
+        return
+    if node.children:
+        for child, subtile in zip(node.children, [(2*tile[0] + i, 2*tile[1] + j) for j in xrange(2) for i in xrange(2)]):
             proc_index(child, handler, depth + 1, subtile)
     else:
         handler(node, depth, tile)
 
-def build_index(raw, extent, max_depth, extras):
-    return quadtree(extent, max_depth, raw, extras, max_depth > 8)
+def build_index(raw, extent, max_depth):
+    return quadtree(extent, max_depth, raw)
 
 GLOBAL = Extent(-180, 180, 90, -270)
 
@@ -220,7 +188,7 @@ def render(ix, depth):
     dim = 2**depth
     BITMAP = [[0 for i in xrange(dim)] for j in xrange(dim)]
     def paint(val, z, (x, y)):
-        c = {-1: 0, 0: 128, 1: 255}[val]
+        c = {None: 0, 0: 128, 1: 255}[val.land]
         celldim = 2**(depth - z)
         for i in xrange(celldim):
             for j in xrange(celldim):
@@ -241,8 +209,8 @@ if __name__ == "__main__":
     max_depth = int(sys.argv[1])
 
     coast = load(COAST_DATA)
-    admin = load(ADMIN_DATA, True)
+    #admin = load(ADMIN_DATA, True)
     print 'loaded'
-    ix = build_index(coast, GLOBAL, max_depth, admin)
+    ix = build_index(coast, GLOBAL, max_depth)
     print 'index built'
     print dump_ix(ix)
