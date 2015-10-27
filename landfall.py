@@ -14,7 +14,41 @@ TYPE_LAND = 1
 TYPE_WATER = -1
 TYPE_MIXED = 0
 
-# worried about 10m resolution if 'near' boundary is close
+MAX_DEPTH = 22
+INCREMENTAL_DEPTH = 5
+
+class Index(object):
+    def __init__(self, data):
+        self.pending = {}
+        self.root = gi.build_index(data, gi.ROOT, 0, self.cache)
+
+    def cache(self, ix, ext, data):
+        if len(ix) == MAX_DEPTH:
+            return
+        self.pending[ix] = (ext, data)
+
+    def get(self, ix):
+        cur = self.root
+        cur_ix = ''
+
+        for k in ix:
+            if cur_ix in self.pending:
+                ext, data = self.pending[cur_ix]
+                next_depth = min(len(cur_ix)+INCREMENTAL_DEPTH, MAX_DEPTH)
+                gi.quadtree_descend(cur, next_depth, ext, data, cur_ix, self.cache)
+                del self.pending[cur_ix]
+
+            cur = cur.children[int(k)]
+            cur_ix += k
+
+            if not cur:
+                cur = gi.QTNode()
+                cur.land = gi.COVERAGE_NONE
+
+        if cur_ix in self.pending:
+            cur.land = None
+            cur.children = []
+        return cur
 
 def test_poly(ix, poly, terminal_test):
     # TODO trim poly on drilldown?
@@ -22,33 +56,19 @@ def test_poly(ix, poly, terminal_test):
 
     fringe = Queue()
     terminal_types = set()
-    areas = set()
-    pending_areas = collections.defaultdict(set)
     is_mixed = False
 
-    def enqueue(node, extent):
-        fringe.put((node, extent))
-        for pa in node.aux_partial:
-            if pa not in areas:
-                pending_areas[pa].add(node)
+    def enqueue(nodeix, extent):
+        fringe.put((nodeix, extent))
     def dequeue():
-        node, ext = fringe.get()
-        for pa in node.aux_partial:
-            if pa not in areas:
-                pending_areas[pa].remove(node)
-                if not pending_areas[pa]:
-                    del pending_areas[pa]
-        return node, ext
-    def add_areas(aa):
-        areas.update(aa)
-        for a in aa:
-            if a in pending_areas:
-                del pending_areas[a]
+        nodeix, ext = fringe.get()
+        node = ix.get(nodeix)
+        return node, nodeix, ext
 
-    enqueue(ix, gi.ROOT)
+    enqueue('', gi.ROOT)
 
     while not fringe.empty():
-        node, ext = dequeue()
+        node, nodeix, ext = dequeue()
         is_terminal = (node.children is None)
         quad = gi.mkquad(ext)
 
@@ -60,29 +80,19 @@ def test_poly(ix, poly, terminal_test):
         else:
             status = OVL_NONE
 
-        if status != OVL_NONE:
-            add_areas(node.aux_full)
-
         if status == OVL_NONE:
             continue
         elif is_terminal or status == OVL_FULL:
-            add_areas(node.aux_partial)
-
             if not is_terminal or node.land == gi.COVERAGE_PARTIAL:
-                is_mixed = True
+                return TYPE_MIXED
             terminal_types.add(node.land)
             if len(terminal_types) > 1:
-                is_mixed = True
+                return TYPE_MIXED
         elif status == OVL_PARTIAL:
-            for subnode, subext in zip(node.children, gi.quadchildren(ext)):
-                if not subnode:
-                    subnode = gi.QTNode()
-                    subnode.land = gi.COVERAGE_NONE
-                enqueue(subnode, subext)
+            for ixc, subext in zip('0123', gi.quadchildren(ext)):
+                enqueue(nodeix + ixc, subext)
 
-        if is_mixed and (not terminal_test or not pending_areas):
-            return TYPE_MIXED, areas
-    return terminal_types.pop(), areas
+    return terminal_types.pop()
 
 
 def rectify_poly(bound, clockwise=True, rollover=180):
@@ -347,7 +357,7 @@ def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
 
     view = make_view_poly(p, merc_to_dist(dlo), merc_to_dist(dhi), blo, bhi)
     terminal = (bspan <= bearing_res)
-    hit, areas = test_poly(ix, view, terminal)
+    hit = test_poly(ix, view, terminal)
     if hit == TYPE_WATER:
         print '  water'
         return
@@ -358,7 +368,7 @@ def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
         if bhi < blo:
             # past antipode
             dist += .5*EARTH_CIRCUMF
-        mask.setVal((dist, areas))
+        mask.setVal(dist)
     else:
         print '  recurse'
         bmid = .5*(blo+bhi)
@@ -384,7 +394,7 @@ def tomap(node, ref, bmin, bmax):
     path = []
     prevdist = None
     antip = antipode(ref)
-    for bear, width, (dist, areas) in node.dump(bmin, bmax):
+    for bear, width, dist in node.dump(bmin, bmax):
         p = geodesy.plot(ref, bear, dist if dist > 0 else (geodesy.EARTH_MEAN_RAD*math.pi - 1000))[0]
         if prevdist is not None and (dist > .5*EARTH_CIRCUMF) != (prevdist > .5*EARTH_CIRCUMF):
             path.append(antip)

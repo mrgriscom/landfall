@@ -136,7 +136,7 @@ class QTNode(object):
             val = tuple(val) if val else None
             setattr(self, attr, val)
 
-def quadtree(ext, maxdepth, data, depth=0, ix=''):
+def quadtree(ext, maxdepth, data, depth=0, ix='', cache_data=lambda ix, ext, data: None):
     print (ix or '~'), len(data)
     ret = QTNode()
 
@@ -151,11 +151,17 @@ def quadtree(ext, maxdepth, data, depth=0, ix=''):
     else:
         if depth == maxdepth:
             ret.land = COVERAGE_PARTIAL
+            cache_data(ix, ext, result)
         else:
-            ret.children = [quadtree(child, maxdepth, result, depth + 1, ix + s) for child, s in zip(quadchildren(ext), '0123')]
+            quadtree_descend(ret, maxdepth, ext, result, ix, cache_data)
 
     ret.tidy_up()
     return ret
+
+def quadtree_descend(node, maxdepth, ext, data, ix, cache_data):
+    node.land = None
+    depth = len(ix)
+    node.children = [quadtree(child, maxdepth, data, depth + 1, ix + s, cache_data) for child, s in zip(quadchildren(ext), '0123')]
 
 def dump_ix(root, path=None):
     import pickle
@@ -179,8 +185,8 @@ def proc_index(node, handler, depth=0, tile=(0, 0)):
     else:
         handler(node, depth, tile)
 
-def build_index(raw, extent, max_depth):
-    return quadtree(extent, max_depth, raw)
+def build_index(raw, extent, max_depth, cache_data=None):
+    return quadtree(extent, max_depth, raw, cache_data=cache_data)
 
 GLOBAL = Extent(-180, 180, 90, -270)
 
