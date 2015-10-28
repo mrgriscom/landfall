@@ -1,5 +1,9 @@
 function init() {
-    var data = DATA_CPT;
+    var data = DATA_CM;
+
+    for (var i = 0; i < data.postings.length; i++) {
+        data.postings[i] = [data.postings[i], []];
+    }
 
     var canv;
     loadColors(function() {

@@ -20,6 +20,9 @@ class WebSocketTestHandler(websocket.WebSocketHandler):
     def open(self):
         pass
 
+    def check_origin(self, origin):
+        return True
+
     def on_message(self, message):
         data = json.loads(message)
 

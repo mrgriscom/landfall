@@ -602,7 +602,7 @@ def dump(node, p, minres, start, end, mindist):
         'range': [start, end],
         'res': res,
         'min_dist': mindist,
-        'postings': [[k[2][0], list(k[2][1])] for k in postings],
+        'postings': [k[2] for k in postings],
     }
     import tempfile
     path = tempfile.mktemp()
