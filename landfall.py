@@ -1,31 +1,136 @@
 from Queue import Queue
-import gen_index as gi
 import geodesy
 import math
-from shapely.geometry import Polygon, MultiPolygon
+import shapely
+import shapely.wkt
+import shapely.ops
+import shapely.validation
+from shapely.geometry import Polygon, MultiPolygon, GeometryCollection, box
 import json
 import collections
+import csv
+import itertools
+import tempfile
+import json
+import sys
 
-OVL_NONE = 0
-OVL_PARTIAL = 1
-OVL_FULL = 2
+OVERLAP_NONE = 0
+OVERLAP_PARTIAL = 1
+OVERLAP_FULL = 2
 
-TYPE_LAND = 1
-TYPE_WATER = -1
-TYPE_MIXED = 0
+MAX_DEPTH = 22 # ~10m
 
-MAX_DEPTH = 22
-INCREMENTAL_DEPTH = 5
+COAST_DATA = '/home/drew/dev/landfall-data/csv/land_polygons.csv'
+ADMIN_DATA = '/home/drew/dev/landfall-data/csv/admin_polygons.csv'
+ADMIN_INDEX = '/home/drew/dev/landfall-data/admin-index.csv'
+
+class Quad(object):
+    def __init__(self, x0, x1, y0, y1):
+        self.x0 = x0
+        self.x1 = x1
+        self.y0 = y0
+        self.y1 = y1
+
+    @property
+    def poly(self):
+        return box(self.x0, self.y0, self.x1, self.y1)
+        
+    @staticmethod
+    def root():
+        return Quad(-180, 180, 90, -270)
+
+    def children(self):
+        xmid = .5 * (self.x0 + self.x1)
+        ymid = .5 * (self.y0 + self.y1)
+        yield Quad(self.x0, xmid, self.y0, ymid)
+        yield Quad(xmid, self.x1, self.y0, ymid)
+        yield Quad(self.x0, xmid, ymid, self.y1)
+        yield Quad(xmid, self.x1, ymid, self.y1)
+
+    def clip(self, polys):
+        quad = self.poly
+        subpolys = []
+        for poly in polys:
+            if quad.intersects(poly):
+                if quad.within(poly):
+                    return OVERLAP_FULL, None
+                else:
+                    if poly.complexity > Index.SUBDIVISION_CUTOFF and not quad.contains(poly):
+                        subpoly = quad.intersection(poly)
+                        set_complexity(subpoly)
+                    else:
+                        subpoly = poly
+                    subpolys.append(subpoly)
+        if subpolys:
+            return OVERLAP_PARTIAL, subpolys
+        else:
+            return OVERLAP_NONE, None
+
+class QuadtreeNode(object):
+    # TODO __slots__
+
+    def __init__(self):
+        self.status = None
+        self._children = None
+
+    @property
+    def is_terminal(self):
+        return self.status is not None
+
+    @property
+    def is_pending(self):
+        return not self.is_terminal and self._children is None
+
+    def children(self, *args, **kwargs):
+        if self.is_pending:
+            self.descend(*args, **kwargs)
+        # do overlap_none nodes here (or for getchild(i))
+        return self._children
+
+    @staticmethod
+    def build(quad, polys, max_depth, ix='', on_terminal=None):
+        print (ix or '~'), len(polys)
+        node = QuadtreeNode()
+        depth = len(ix)
+        ovl, subpolys = quad.clip(polys)
+        if ovl == OVERLAP_NONE:
+            return None
+        elif ovl == OVERLAP_FULL:
+            node.status = OVERLAP_FULL
+        else:
+            if depth == max_depth:
+                if on_terminal:
+                    pending = on_terminal(ix, quad, subpolys)
+                else:
+                    pending = False
+
+                if not pending:
+                    node.status = OVERLAP_PARTIAL
+            else:
+                node.descend(quad, subpolys, max_depth, ix, on_terminal)
+        return node
+
+    def descend(self, quad, polys, max_depth, ix, on_terminal):
+        self._children = [QuadtreeNode.build(child_quad, polys, max_depth, ix + i, on_terminal)
+                          for child_quad, i in zip(quad.children(), '0123')]
 
 class Index(object):
-    def __init__(self, data):
-        self.pending = {}
-        self.root = gi.build_index(data, gi.ROOT, 0, self.cache)
+    INCREMENTAL_DEPTH = 1
+    SUBDIVISION_CUTOFF = 10
 
-    def cache(self, ix, ext, data):
-        if len(ix) == MAX_DEPTH:
-            return
-        self.pending[ix] = (ext, data)
+    def __init__(self, polys):
+        self.pending = {}
+        self.root = QuadtreeNode.build(Quad.root(), polys, 0, on_terminal=self.cache_pending)
+
+    def cache_pending(self, ix, quad, polys):
+        depth = len(ix)
+        if depth == MAX_DEPTH:
+            return False
+
+        self.pending[ix] = (quad, polys)
+        return True
+
+    # TODO get by (node,i_c) and make pending node based
 
     def get(self, ix):
         cur = self.root
@@ -34,21 +139,71 @@ class Index(object):
         for k in ix:
             if cur_ix in self.pending:
                 ext, data = self.pending[cur_ix]
-                next_depth = min(len(cur_ix)+INCREMENTAL_DEPTH, MAX_DEPTH)
-                gi.quadtree_descend(cur, next_depth, ext, data, cur_ix, self.cache)
                 del self.pending[cur_ix]
+                next_depth = min(len(cur_ix) + Index.INCREMENTAL_DEPTH, MAX_DEPTH)
+                cur.descend(ext, data, next_depth, cur_ix, self.cache_pending)
 
-            cur = cur.children[int(k)]
+            cur = cur.children()[int(k)]
             cur_ix += k
 
             if not cur:
-                cur = gi.QTNode()
-                cur.land = gi.COVERAGE_NONE
+                cur = QuadtreeNode()
+                cur.status = OVERLAP_NONE
 
-        if cur_ix in self.pending:
-            cur.land = None
-            cur.children = []
         return cur
+
+
+def load_geometry(path, coalesce=True):
+    """if coalesce=True, all polys are part of one big multipolygon; if false,
+    each represents a separate entity"""
+    csv.field_size_limit(sys.maxsize)
+    data = [] if coalesce else {}
+    with open(path) as f:
+        r = csv.DictReader(f)
+        for i, row in enumerate(r):
+            if (i+1) % 10000 == 0:
+                print 'loaded %d' % (i+1)
+            poly = shapely.wkt.loads(row['WKT'])
+            if not poly.is_valid:
+                #util.display(poly)
+                reason = shapely.validation.explain_validity(poly).lower()
+                print reason
+                if 'self-intersection' in reason:
+                    poly = poly.buffer(0.)
+                elif 'too few points' in reason:
+                    pass
+                else:
+                    assert False, poly
+            set_complexity(poly)
+            if coalesce:
+                data.append(poly)
+            else:
+                data[i] = [poly]
+    return data
+
+def explode_poly(poly):
+    if isinstance(poly, Polygon):
+        return [poly]
+    elif isinstance(poly, MultiPolygon):
+        return poly
+    elif isinstance(poly, GeometryCollection):
+        return [e for e in poly if isinstance(e, Polygon)]
+    else:
+        return []
+
+def poly_complexity(poly):
+    ring_size = lambda ring: len(ring.coords)
+    num_vertices = lambda p: ring_size(p.exterior) + sum(map(ring_size, p.interiors))
+    def _nv(p):
+        assert isinstance(p, Polygon)
+        return num_vertices(p)
+    return sum(map(_nv, explode_poly(poly)))
+
+def set_complexity(poly):
+    poly.complexity = poly_complexity(poly)
+
+
+
 
 def test_poly(ix, poly, terminal_test):
     # TODO trim poly on drilldown?
@@ -65,31 +220,33 @@ def test_poly(ix, poly, terminal_test):
         node = ix.get(nodeix)
         return node, nodeix, ext
 
-    enqueue('', gi.ROOT)
+    enqueue('', Quad.root())
 
     while not fringe.empty():
         node, nodeix, ext = dequeue()
-        is_terminal = (node.children is None)
-        quad = gi.mkquad(ext)
+        quad = ext.poly
 
         if quad.intersects(poly):
             if quad.within(poly):
-                status = OVL_FULL
+                status = OVERLAP_FULL
             else:
-                status = OVL_PARTIAL
+                status = OVERLAP_PARTIAL
         else:
-            status = OVL_NONE
+            status = OVERLAP_NONE
 
-        if status == OVL_NONE:
+        # note the difference between status and node.status!
+
+        if status == OVERLAP_NONE:
             continue
-        elif is_terminal or status == OVL_FULL:
-            if not is_terminal or node.land == gi.COVERAGE_PARTIAL:
-                return TYPE_MIXED
-            terminal_types.add(node.land)
+        elif node.is_terminal or status == OVERLAP_FULL:
+            # TODO make this conditional more understandable
+            if not node.is_terminal or node.status == OVERLAP_PARTIAL:
+                return OVERLAP_PARTIAL
+            terminal_types.add(node.status)
             if len(terminal_types) > 1:
-                return TYPE_MIXED
-        elif status == OVL_PARTIAL:
-            for ixc, subext in zip('0123', gi.quadchildren(ext)):
+                return OVERLAP_PARTIAL
+        elif status == OVERLAP_PARTIAL:
+            for ixc, subext in zip('0123', ext.children()):
                 enqueue(nodeix + ixc, subext)
 
     return terminal_types.pop()
@@ -358,7 +515,7 @@ def viewshed_drilldown(ix, p, bearing_res, blo, bhi, dlo, dhi, mask):
     view = make_view_poly(p, merc_to_dist(dlo), merc_to_dist(dhi), blo, bhi)
     terminal = (bspan <= bearing_res)
     hit = test_poly(ix, view, terminal)
-    if hit == TYPE_WATER:
+    if hit == OVERLAP_NONE:
         print '  water'
         return
 
@@ -453,3 +610,8 @@ def _vs(ix, p, bearing_res, bearing0, bearing1, near_dist):
         'plot': lambda: showpano(result, bearing0, bearing1),
         'dump': lambda: dump(result, p, bearing_res, bearing0, bearing1, near_dist),
     }
+
+
+if __name__ == "__main__":
+
+    polys = load_geometry(COAST_DATA)
