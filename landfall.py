@@ -67,7 +67,12 @@ class Quad(object):
             return OVERLAP_NONE, None
 
 class QuadtreeNode(object):
-    # TODO __slots__
+    __slots__ = ['status', '_children']
+
+    # states:
+    # terminal, no children, has a status
+    # non-terminal, has children and no status
+    # non-terminal and pending-- children not computed yet
 
     def __init__(self):
         self.status = None
@@ -81,38 +86,39 @@ class QuadtreeNode(object):
     def is_pending(self):
         return not self.is_terminal and self._children is None
 
-    def children(self, *args, **kwargs):
-        if self.is_pending:
-            self.descend(*args, **kwargs)
-        # do overlap_none nodes here (or for getchild(i))
+    @property
+    def children(self):
+        assert not self.is_pending
         return self._children
 
-    @staticmethod
-    def build(quad, polys, max_depth, ix='', on_terminal=None):
-        print (ix or '~'), len(polys)
-        node = QuadtreeNode()
-        depth = len(ix)
-        ovl, subpolys = quad.clip(polys)
-        if ovl == OVERLAP_NONE:
-            return None
-        elif ovl == OVERLAP_FULL:
-            node.status = OVERLAP_FULL
-        else:
-            if depth == max_depth:
-                if on_terminal:
-                    pending = on_terminal(ix, quad, subpolys)
-                else:
-                    pending = False
-
-                if not pending:
-                    node.status = OVERLAP_PARTIAL
-            else:
-                node.descend(quad, subpolys, max_depth, ix, on_terminal)
-        return node
+    def childAt(self, i):
+        child = self.children[i]
+        if not child:
+            child = QuadtreeNode()
+            child.status = OVERLAP_NONE
+        return child
 
     def descend(self, quad, polys, max_depth, ix, on_terminal):
-        self._children = [QuadtreeNode.build(child_quad, polys, max_depth, ix + i, on_terminal)
+        self._children = [build_index(child_quad, polys, max_depth, ix + i, on_terminal)
                           for child_quad, i in zip(quad.children(), '0123')]
+
+def build_index(quad, polys, max_depth, ix='', on_terminal=lambda *args: False):
+    print (ix or '~'), len(polys)
+    node = QuadtreeNode()
+    depth = len(ix)
+    ovl, subpolys = quad.clip(polys)
+    if ovl == OVERLAP_NONE:
+        return None
+    elif ovl == OVERLAP_FULL:
+        node.status = OVERLAP_FULL
+    else:
+        if depth == max_depth:
+            pending = on_terminal(node, ix, quad, subpolys)
+            if not pending:
+                node.status = OVERLAP_PARTIAL
+        else:
+            node.descend(quad, subpolys, max_depth, ix, on_terminal)
+    return node
 
 class Index(object):
     INCREMENTAL_DEPTH = 1
@@ -120,41 +126,36 @@ class Index(object):
 
     def __init__(self, polys):
         self.pending = {}
-        self.root = QuadtreeNode.build(Quad.root(), polys, 0, on_terminal=self.cache_pending)
+        self.root = build_index(Quad.root(), polys, 0, on_terminal=self.cache_pending)
 
-    def cache_pending(self, ix, quad, polys):
+    def cache_pending(self, node, ix, quad, polys):
         depth = len(ix)
         if depth == MAX_DEPTH:
             return False
 
-        self.pending[ix] = (quad, polys)
+        # ix is useful for debugging, but really we only need depth
+        self.pending[node] = (ix, quad, polys)
         return True
 
-    # TODO get by (node,i_c) and make pending node based
+    def get(self, node, i):
+        if node in self.pending:
+            ix, quad, polys = self.pending.pop(node)
+            depth = len(ix)
+            next_depth = min(depth + Index.INCREMENTAL_DEPTH, MAX_DEPTH)
+            node.descend(quad, polys, next_depth, ix, self.cache_pending)
+        return node.childAt(i)
 
-    def get(self, ix):
+    def getIx(self, ix):
         cur = self.root
-        cur_ix = ''
-
         for k in ix:
-            if cur_ix in self.pending:
-                ext, data = self.pending[cur_ix]
-                del self.pending[cur_ix]
-                next_depth = min(len(cur_ix) + Index.INCREMENTAL_DEPTH, MAX_DEPTH)
-                cur.descend(ext, data, next_depth, cur_ix, self.cache_pending)
-
-            cur = cur.children()[int(k)]
-            cur_ix += k
-
-            if not cur:
-                cur = QuadtreeNode()
-                cur.status = OVERLAP_NONE
-
+            cur = self.get(cur, int(k))
         return cur
+
+    # TODO: save/load
 
 
 def load_geometry(path, coalesce=True):
-    """if coalesce=True, all polys are part of one big multipolygon; if false,
+    """if coalesce=true, all polys are part of one big multipolygon; if false,
     each represents a separate entity"""
     csv.field_size_limit(sys.maxsize)
     data = [] if coalesce else {}
@@ -213,17 +214,21 @@ def test_poly(ix, poly, terminal_test):
     terminal_types = set()
     is_mixed = False
 
-    def enqueue(nodeix, extent):
-        fringe.put((nodeix, extent))
+    def enqueue(nodespec, extent):
+        fringe.put((nodespec, extent))
     def dequeue():
-        nodeix, ext = fringe.get()
-        node = ix.get(nodeix)
-        return node, nodeix, ext
+        nodespec, ext = fringe.get()
+        if nodespec is None:
+            node = ix.root
+        else:
+            parent, ixc = nodespec
+            node = ix.get(parent, ixc)
+        return node, ext
 
-    enqueue('', Quad.root())
+    enqueue(None, Quad.root())
 
     while not fringe.empty():
-        node, nodeix, ext = dequeue()
+        node, ext = dequeue()
         quad = ext.poly
 
         if quad.intersects(poly):
@@ -234,20 +239,23 @@ def test_poly(ix, poly, terminal_test):
         else:
             status = OVERLAP_NONE
 
-        # note the difference between status and node.status!
+        # there are several different statuses in play here:
+        # status -- whether the 'view' extent overlaps with the index extent
+        # node.status -- whether the index extent overlaps land/water/admin area
+        # return value -- whether the view extent overlaps land/water/admin area
 
         if status == OVERLAP_NONE:
             continue
-        elif node.is_terminal or status == OVERLAP_FULL:
-            # TODO make this conditional more understandable
-            if not node.is_terminal or node.status == OVERLAP_PARTIAL:
+        elif status == OVERLAP_FULL or node.is_terminal:
+            if ((status == OVERLAP_FULL and not node.is_terminal) or
+                (node.is_terminal and node.status == OVERLAP_PARTIAL)):
                 return OVERLAP_PARTIAL
             terminal_types.add(node.status)
             if len(terminal_types) > 1:
                 return OVERLAP_PARTIAL
         elif status == OVERLAP_PARTIAL:
-            for ixc, subext in zip('0123', ext.children()):
-                enqueue(nodeix + ixc, subext)
+            for ixc, subext in zip(xrange(4), ext.children()):
+                enqueue((node, ixc), subext)
 
     return terminal_types.pop()
 
