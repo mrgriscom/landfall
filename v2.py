@@ -151,39 +151,60 @@ def ix_ancestor(ix):
 
 def analyze(coast, admin):
     admin_full, admin_partial = admin
-    partcount = collections.defaultdict(lambda: 0)
-    fullonlycount = 0
-    nullius = set()
-    for ix, _ in coast.iteritems():
+    output = {}
+    for ix, geom in coast.iteritems():
         if ix[0] in '23':
             continue
 
-        ap = set(admin_partial.get(ix, {}).keys())
+        lines = list(itertools.chain(*map(explode_lines, geom)))
+        coverage = dict((ln, set()) for ln in lines)
+
+        # partial admin areas
+        for partial_area, admin_bound in admin_partial.get(ix, {}).iteritems():
+            assert len(admin_bound) == 1
+            admin_bound = admin_bound[0]
+
+            for line in list(coverage.keys()):
+                admin_line = admin_bound.intersection(line)
+                if admin_line.is_empty or not explode_lines(admin_line):
+                    continue
+
+                if line.equals(admin_line):
+                    coverage[line].add(partial_area)
+                else:
+                    remainder = line.difference(admin_bound)
+                    cov = coverage.pop(line)
+                    for x in explode_lines(remainder):
+                        coverage[x] = set(cov)
+                    for x in explode_lines(admin_line):
+                        coverage[x] = set(cov)
+                        coverage[x].add(partial_area)
+
+        # full areas
         af = reduce(lambda a, b: a.union(b), (admin_full.get(anc_ix, []) for anc_ix in ix_ancestor(ix)), set())
+        for full_area in af:
+            for areas in coverage.values():
+                areas.add(full_area)
 
-        if ap:
-            partcount[frozenset(ap)] += 1
-            print ix
-            print 'full', ' '.join(sorted(af))
-            print 'part', ' '.join(sorted(ap))
-            print 
+        output[ix] = coverage
+    return output
 
-            #for aaa in ap:
-            #    ageo = admin_partial[ix][aaa]
-            #    ageo.intersection(
-        else:
-            if af:
-                fullonlycount += 1
-            else:
-                nullius.add(ix)
+def verify(output):
+    by_admin = collections.defaultdict(list)
 
-    for k, v in sorted(partcount.items(), key=lambda (k, v): v, reverse=True):
-        print ' '.join(sorted(k)), v
-    for nn in sorted(nullius):
-        c = reduce(lambda a, b: list(a.children())[int(b)], nn, Quad.root()).poly.exterior.coords[0]
-        print nn, c[1], c[0]
+    for coverage in output.values():
+        for line, areas in coverage.iteritems():
+            for aa in areas:
+                by_admin[aa].append(line)
+            if not areas:
+                by_admin['XX'].append(line)
 
-    print fullonlycount
+    import csv
+    with open('/tmp/lfout.csv', 'w') as f:
+        w = csv.DictWriter(f, ['WKT', 'CODE'])
+        w.writeheader()
+        for area, lines in list(by_admin.iteritems())[:5]:
+            w.writerow({'WKT': MultiLineString(lines).wkt, 'CODE': area})
 
 if __name__ == "__main__":
 
@@ -197,3 +218,6 @@ if __name__ == "__main__":
     with open('/home/drew/tmp/adminix') as f:
         admin_ix = pickle.load(f)
 
+    processed = analyze(coast_ix, admin_ix)
+    with open('/home/drew/tmp/lf_processed', 'w') as f:
+        pickle.dump(processed, f)
