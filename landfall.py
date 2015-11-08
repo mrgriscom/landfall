@@ -153,18 +153,26 @@ class Index(object):
 
     # TODO: save/load
 
-
-def load_geometry(path, coalesce=True):
+def load_geometry(path, key=None):
     """if coalesce=true, all polys are part of one big multipolygon; if false,
     each represents a separate entity"""
     csv.field_size_limit(sys.maxsize)
-    data = [] if coalesce else {}
+    data = [] if key is None else {}
     with open(path) as f:
         r = csv.DictReader(f)
         for i, row in enumerate(r):
             if (i+1) % 10000 == 0:
                 print 'loaded %d' % (i+1)
-            poly = shapely.wkt.loads(row['WKT'])
+
+            # quick fix for antarctica
+            if row['WKT'] == 'POLYGON ((-180 -90,-180 -60,180 -60,180 -90))':
+                row['WKT'] = 'POLYGON ((-180 -90,-180 -60,180 -60,180 -90,-180 -90))'
+
+            try:
+                poly = shapely.wkt.loads(row['WKT'])
+            except Exception, e:
+                print row['WKT']
+                continue
             if not poly.is_valid:
                 #util.display(poly)
                 reason = shapely.validation.explain_validity(poly).lower()
@@ -176,10 +184,12 @@ def load_geometry(path, coalesce=True):
                 else:
                     assert False, poly
             set_complexity(poly)
-            if coalesce:
-                data.append(poly)
+            if key:
+                if row[key] in data:
+                    print 'warning: dup key %s' % row[key]
+                data[row[key]] = [poly]
             else:
-                data[i] = [poly]
+                data.append(poly)
     return data
 
 def explode_poly(poly):
