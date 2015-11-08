@@ -1,5 +1,5 @@
 function init() {
-    var data = DATA_CM;
+    var data = DATA_CPT;
 
     //for (var i = 0; i < data.postings.length; i++) {
     //    data.postings[i] = [data.postings[i], []];
@@ -12,7 +12,7 @@ function init() {
     });
 }
 
-NUM_COLORS = 9;
+NUM_COLORS = 6;
 STEPS = 1000;
 
 function loadColors(after) {
@@ -48,8 +48,8 @@ function render(data, width, height) {
     var admin_by_px = [];
     for (var i = 0; i < data.postings.length; i++) {
         var _admins = data.postings[i][1];
-        //var admin = (_admins.length > 0 ? _.sortBy(_admins, function(e) { return -e.length; })[0] : 'X0');
-        var admin = (_admins.length > 0 ? _admins[Math.floor(Math.random() * _admins.length)] : -1);
+        var admin = (_admins.length > 0 ? _.sortBy(_admins, function(e) { return -e.length; })[0] : 'X0');
+        //var admin = (_admins.length > 0 ? _admins[Math.floor(Math.random() * _admins.length)] : -1);
         admin_by_px.push(admin);
     }
 
