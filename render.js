@@ -1,9 +1,9 @@
 function init() {
     var data = DATA_CM;
 
-    for (var i = 0; i < data.postings.length; i++) {
-        data.postings[i] = [data.postings[i], []];
-    }
+    //for (var i = 0; i < data.postings.length; i++) {
+    //    data.postings[i] = [data.postings[i], []];
+    //}
 
     var canv;
     loadColors(function() {
@@ -12,7 +12,7 @@ function init() {
     });
 }
 
-NUM_COLORS = 6;
+NUM_COLORS = 9;
 STEPS = 1000;
 
 function loadColors(after) {
@@ -48,6 +48,7 @@ function render(data, width, height) {
     var admin_by_px = [];
     for (var i = 0; i < data.postings.length; i++) {
         var _admins = data.postings[i][1];
+        //var admin = (_admins.length > 0 ? _.sortBy(_admins, function(e) { return -e.length; })[0] : 'X0');
         var admin = (_admins.length > 0 ? _admins[Math.floor(Math.random() * _admins.length)] : -1);
         admin_by_px.push(admin);
     }
@@ -57,7 +58,8 @@ function render(data, width, height) {
     for (var i = 0; i < admin_by_px.length; i++) {
         _admins[admin_by_px[i]] = true;
     }
-    var admins = _.map(_.keys(_admins), function(k) { return +k; });
+    var admins = _.keys(_admins);
+    console.log(admins);
 
     // build adjacency graph
     var adj = {};
@@ -77,7 +79,7 @@ function render(data, width, height) {
         adjedge(a1, a0);
     }
     _.each(adj, function(v, k) {
-        adj[k] = _.map(_.keys(v), function(k) { return +k; });
+        adj[k] = _.keys(v);
     });
 
     var colors = assign_colors(NUM_COLORS, admins, adj);
@@ -228,7 +230,6 @@ function assign_colors(num_colors, nodes, adj) {
         matrix.push(row);
     }
     _.each(adj, function(v, k) {
-        k = +k;
         _.each(v, function(e, i) {
             matrix[nodes.indexOf(k)][nodes.indexOf(e)] = 1;
         });
