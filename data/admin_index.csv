@@ -1,0 +1,283 @@
+code,name,type,parent
+AF,Afghanistan,sovereign,
+AL,Albania,sovereign,
+DZ,Algeria,sovereign,
+AD,Andorra,sovereign,
+AO,Angola,sovereign,
+AG,Antigua and Barbuda,sovereign,
+AR,Argentina,sovereign,
+AM,Armenia,sovereign,
+AU,Australia,sovereign,
+AT,Austria,sovereign,
+AZ,Azerbaijan,sovereign,
+BS,Bahamas,sovereign,
+BH,Bahrain,sovereign,
+BD,Bangladesh,sovereign,
+BB,Barbados,sovereign,
+BY,Belarus,sovereign,
+BE,Belgium,sovereign,
+BZ,Belize,sovereign,
+BJ,Benin,sovereign,
+BT,Bhutan,sovereign,
+BO,Bolivia,sovereign,
+BA,Bosnia and Herzegovina,sovereign,
+BW,Botswana,sovereign,
+BR,Brazil,sovereign,
+BN,Brunei,sovereign,
+BG,Bulgaria,sovereign,
+BF,Burkina Faso,sovereign,
+BI,Burundi,sovereign,
+KH,Cambodia,sovereign,
+CM,Cameroon,sovereign,
+CA,Canada,sovereign,
+CV,Cape Verde,sovereign,
+CF,Central African Republic,sovereign,
+TD,Chad,sovereign,
+CL,Chile,sovereign,
+CN,China,sovereign,
+CO,Colombia,sovereign,
+KM,Comoros,sovereign,
+CG,Congo-Brazzaville,sovereign,
+CD,Congo-Kinshasa,sovereign,
+CR,Costa Rica,sovereign,
+HR,Croatia,sovereign,
+CU,Cuba,sovereign,
+CY,Cyprus,sovereign,
+CZ,Czech Republic,sovereign,
+DK,Denmark,sovereign,
+DJ,Djibouti,sovereign,
+DM,Dominica,sovereign,
+DO,Dominican Republic,sovereign,
+TL,East Timor,sovereign,
+EC,Ecuador,sovereign,
+EG,Egypt,sovereign,
+SV,El Salvador,sovereign,
+GQ,Equatorial Guinea,sovereign,
+ER,Eritrea,sovereign,
+EE,Estonia,sovereign,
+ET,Ethiopia,sovereign,
+FM,Federated States of Micronesia,sovereign,
+FJ,Fiji,sovereign,
+FI,Finland,sovereign,
+FR,France,sovereign,
+GA,Gabon,sovereign,
+GM,Gambia,sovereign,
+GE,Georgia,sovereign,
+DE,Germany,sovereign,
+GH,Ghana,sovereign,
+GR,Greece,sovereign,
+GD,Grenada,sovereign,
+GT,Guatemala,sovereign,
+GN,Guinea,sovereign,
+GW,Guinea-Bissau,sovereign,
+GY,Guyana,sovereign,
+HT,Haiti,sovereign,
+HN,Honduras,sovereign,
+HU,Hungary,sovereign,
+IS,Iceland,sovereign,
+IN,India,sovereign,
+ID,Indonesia,sovereign,
+IR,Iran,sovereign,
+IQ,Iraq,sovereign,
+IE,Ireland,sovereign,
+IL,Israel,sovereign,
+IT,Italy,sovereign,
+CI,Ivory Coast,sovereign,
+JM,Jamaica,sovereign,
+JP,Japan,sovereign,
+JO,Jordan,sovereign,
+KZ,Kazakhstan,sovereign,
+KE,Kenya,sovereign,
+KI,Kiribati,sovereign,
+KW,Kuwait,sovereign,
+KG,Kyrgyzstan,sovereign,
+LA,Laos,sovereign,
+LV,Latvia,sovereign,
+LB,Lebanon,sovereign,
+LS,Lesotho,sovereign,
+LR,Liberia,sovereign,
+LY,Libya,sovereign,
+LI,Liechtenstein,sovereign,
+LT,Lithuania,sovereign,
+LU,Luxembourg,sovereign,
+MK,Macedonia,sovereign,
+MG,Madagascar,sovereign,
+MW,Malawi,sovereign,
+MY,Malaysia,sovereign,
+MV,Maldives,sovereign,
+ML,Mali,sovereign,
+MT,Malta,sovereign,
+MH,Marshall Islands,sovereign,
+MR,Mauritania,sovereign,
+MU,Mauritius,sovereign,
+MX,Mexico,sovereign,
+MD,Moldova,sovereign,
+MC,Monaco,sovereign,
+MN,Mongolia,sovereign,
+ME,Montenegro,sovereign,
+MA,Morocco,sovereign,
+MZ,Mozambique,sovereign,
+MM,Myanmar,sovereign,
+NA,Namibia,sovereign,
+NR,Nauru,sovereign,
+NP,Nepal,sovereign,
+NL,Netherlands,sovereign,
+NZ,New Zealand,sovereign,
+NI,Nicaragua,sovereign,
+NE,Niger,sovereign,
+NG,Nigeria,sovereign,
+KP,North Korea,sovereign,
+NO,Norway,sovereign,
+OM,Oman,sovereign,
+PK,Pakistan,sovereign,
+PW,Palau,sovereign,
+PA,Panama,sovereign,
+PG,Papua New Guinea,sovereign,
+PY,Paraguay,sovereign,
+PE,Peru,sovereign,
+PH,Philippines,sovereign,
+PL,Poland,sovereign,
+PT,Portugal,sovereign,
+QA,Qatar,sovereign,
+RO,Romania,sovereign,
+RU,Russia,sovereign,
+RW,Rwanda,sovereign,
+KN,Saint Kitts and Nevis,sovereign,
+LC,Saint Lucia,sovereign,
+VC,Saint Vincent and the Grenadines,sovereign,
+WS,Samoa,sovereign,
+SM,San Marino,sovereign,
+ST,Sao Tome and Principe,sovereign,
+SA,Saudi Arabia,sovereign,
+SN,Senegal,sovereign,
+RS,Serbia,sovereign,
+SC,Seychelles,sovereign,
+SL,Sierra Leone,sovereign,
+SG,Singapore,sovereign,
+SK,Slovakia,sovereign,
+SI,Slovenia,sovereign,
+SB,Solomon Islands,sovereign,
+SO,Somalia,sovereign,
+ZA,South Africa,sovereign,
+KR,South Korea,sovereign,
+SS,South Sudan,sovereign,
+ES,Spain,sovereign,
+LK,Sri Lanka,sovereign,
+SD,Sudan,sovereign,
+SR,Suriname,sovereign,
+SZ,Swaziland,sovereign,
+SE,Sweden,sovereign,
+CH,Switzerland,sovereign,
+SY,Syria,sovereign,
+TW,Taiwan,sovereign,
+TJ,Tajikistan,sovereign,
+TZ,Tanzania,sovereign,
+TH,Thailand,sovereign,
+TG,Togo,sovereign,
+TO,Tonga,sovereign,
+TT,Trinidad and Tobago,sovereign,
+TN,Tunisia,sovereign,
+TR,Turkey,sovereign,
+TM,Turkmenistan,sovereign,
+TV,Tuvalu,sovereign,
+UG,Uganda,sovereign,
+UA,Ukraine,sovereign,
+AE,United Arab Emirates,sovereign,
+GB,United Kingdom,sovereign,
+US,United States of America,sovereign,
+UY,Uruguay,sovereign,
+UZ,Uzbekistan,sovereign,
+VU,Vanuatu,sovereign,
+VA,Vatican City,sovereign,
+VE,Venezuela,sovereign,
+VN,Vietnam,sovereign,
+YE,Yemen,sovereign,
+ZM,Zambia,sovereign,
+ZW,Zimbabwe,sovereign,
+AQ,Antarctica,special,
+PS,Palestine,special,
+CA-BC,British Columbia,subdivision,CA
+CA-MB,Manitoba,subdivision,CA
+CA-NB,New Brunswick,subdivision,CA
+CA-NL,Newfoundland and Labrador,subdivision,CA
+CA-NT,Northwest Territories,subdivision,CA
+CA-NS,Nova Scotia,subdivision,CA
+CA-NU,Nunavut,subdivision,CA
+CA-ON,Ontario,subdivision,CA
+CA-PE,Prince Edward Island,subdivision,CA
+CA-QC,Quebec,subdivision,CA
+CA-YT,Yukon,subdivision,CA
+HK,Hong Kong,subdivision,CN
+MO,Macau,subdivision,CN
+GB-ENG,England,subdivision,GB
+GB-NIR,Northern Ireland,subdivision,GB
+GB-SCT,Scotland,subdivision,GB
+GB-WLS,Wales,subdivision,GB
+US-AL,Alabama,subdivision,US
+US-AK,Alaska,subdivision,US
+US-CA,California,subdivision,US
+US-CT,Connecticut,subdivision,US
+US-DE,Delaware,subdivision,US
+US-FL,Florida,subdivision,US
+US-GA,Georgia,subdivision,US
+US-HI,Hawaii,subdivision,US
+US-LA,Louisiana,subdivision,US
+US-ME,Maine,subdivision,US
+US-MD,Maryland,subdivision,US
+US-MA,Massachusetts,subdivision,US
+US-MS,Mississippi,subdivision,US
+US-NH,New Hampshire,subdivision,US
+US-NJ,New Jersey,subdivision,US
+US-NY,New York,subdivision,US
+US-NC,North Carolina,subdivision,US
+US-OR,Oregon,subdivision,US
+US-RI,Rhode Island,subdivision,US
+US-SC,South Carolina,subdivision,US
+US-TX,Texas,subdivision,US
+US-VA,Virginia,subdivision,US
+US-WA,Washington,subdivision,US
+AU-XAC,Ashmore and Cartier Islands,territory,AU
+CX,Christmas Island,territory,AU
+CC,Cocos/Keeling Island,territory,AU
+AU-XCS,Coral Sea Islands,territory,AU
+HM,Heard and McDonald Islands,territory,AU
+NF,Norfolk Island,territory,AU
+FO,Faroe Islands,territory,DK
+GL,Greenland,territory,DK
+FR-CP,Clipperton Island,territory,FR
+TF,French Antarctic and Southern Lands,territory,FR
+PF,French Polynesia,territory,FR
+NC,New Caledonia,territory,FR
+BL,Saint Barthelemy,territory,FR
+MF,Saint Martin,territory,FR
+PM,Saint Pierre and Miquelon,territory,FR
+WF,Wallis and Futuna,territory,FR
+GB-XAD,Akrotiri and Dhekelia,territory,GB
+AI,Anguilla,territory,GB
+BM,Bermuda,territory,GB
+IO,British Indian Ocean Territory,territory,GB
+VG,British Virgin Islands,territory,GB
+KY,Cayman Islands,territory,GB
+FK,Falkland Islands,territory,GB
+GI,Gibraltar,territory,GB
+GG,Guernsey,territory,GB
+IM,Isle of Man,territory,GB
+JE,Jersey,territory,GB
+MS,Montserrat,territory,GB
+PN,Pitcairn Islands,territory,GB
+SH,"Saint Helena, Ascension, and Tristan da Cunha",territory,GB
+GS,South Georgia and the South Sandwich Islands,territory,GB
+TC,Turks and Caicos Islands,territory,GB
+AW,Aruba,territory,NL
+CW,Curacao,territory,NL
+SX,Sint Maarten,territory,NL
+CK,Cook Islands,territory,NZ
+NU,Niue,territory,NZ
+TK,Tokelau,territory,NZ
+AS,American Samoa,territory,US
+GU,Guam,territory,US
+MP,Northern Mariana Islands,territory,US
+US-XPA,Palmyra Atoll,territory,US
+PR,Puerto Rico,territory,US
+UM,United States Unincorporated Islands,territory,US
+VI,United States Virgin Islands,territory,US

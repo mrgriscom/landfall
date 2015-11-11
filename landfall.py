@@ -192,15 +192,6 @@ def load_geometry(path, key=None):
                 data.append(poly)
     return data
 
-def explode_poly(poly):
-    if isinstance(poly, Polygon):
-        return [poly]
-    elif isinstance(poly, MultiPolygon):
-        return poly
-    elif isinstance(poly, GeometryCollection):
-        return [e for e in poly if isinstance(e, Polygon)]
-    else:
-        return []
 
 def poly_complexity(poly):
     ring_size = lambda ring: len(ring.coords)
