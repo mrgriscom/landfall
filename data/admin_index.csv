@@ -1,4 +1,7 @@
 code,name,type,parent
+XAB,Abkhazia,defacto,
+XNC,Northern Cyprus,defacto,
+EH,Western Sahara,defacto,
 AF,Afghanistan,sovereign,
 AL,Albania,sovereign,
 DZ,Algeria,sovereign,
@@ -209,10 +212,12 @@ CA-QC,Quebec,subdivision,CA
 CA-YT,Yukon,subdivision,CA
 HK,Hong Kong,subdivision,CN
 MO,Macau,subdivision,CN
+AX,Aland,subdivision,FI
 GB-ENG,England,subdivision,GB
 GB-NIR,Northern Ireland,subdivision,GB
 GB-SCT,Scotland,subdivision,GB
 GB-WLS,Wales,subdivision,GB
+NO-21,Svalbard,subdivision,NO
 US-AL,Alabama,subdivision,US
 US-AK,Alaska,subdivision,US
 US-CA,California,subdivision,US
@@ -271,6 +276,7 @@ TC,Turks and Caicos Islands,territory,GB
 AW,Aruba,territory,NL
 CW,Curacao,territory,NL
 SX,Sint Maarten,territory,NL
+BV,Bouvet Island,territory,NO
 CK,Cook Islands,territory,NZ
 NU,Niue,territory,NZ
 TK,Tokelau,territory,NZ

@@ -199,7 +199,7 @@ def analyze(coast, admin):
         for partial_area, admin_bound in admin_partial.get(ix, {}).iteritems():
             for line in list(coverage.keys()):
                 admin_line = admin_bound.intersection(line)
-                if admin_line.is_empty or not explode_lines(admin_line):
+                if admin_line.is_empty or admin_line.length < 1e-9:
                     continue
 
                 if line.equals(admin_line):
@@ -227,6 +227,7 @@ def verify(output, admin_info):
 
     for ix, coverage in sorted(output.iteritems()):
         issues = set()
+        problem_lines = set()
         for line, areas in coverage.iteritems():
             # TODO fix this in indexing phase
             if len(line.coords) == 2 and line.length < 1e-9:
@@ -241,7 +242,7 @@ def verify(output, admin_info):
             if not areas and not special[config.cc_unclaimed]:
                 issues.add((config.cc_unclaimed,))
 
-            parents = set(filter(None, (admin_info[a]['parent'] for a in areas)))
+            parents = set(admin_info[a]['parent'] for a in areas if admin_info[a]['type'] == 'subdivision')
             for a in areas:
                 info = admin_info[a]
 
@@ -254,25 +255,40 @@ def verify(output, admin_info):
                         pass
                     else:
                         issues.add(('PPAR', a))
+                        problem_lines.add(line)
             areas -= parents
 
             if len(areas) > 1:
                 valid_dispute = None
-                for d in special[config.cc_disputed]:
-                    did = d.split('-')[-1]
-                    if set(config.disputed_areas[did]['parties']) == areas:
-                        valid_dispute = d
-                        break
+
+                if len(areas) == 2:
+                    for defacto, recognized in config.defacto.iteritems():
+                        if areas.issubset(set([defacto] + recognized)):
+                            valid_dispute = defacto
+                            break
+
+                if not valid_dispute:
+                    for d in special[config.cc_disputed]:
+                        did = d.split('-')[-1]
+                        if set(config.disputed_areas[did]['parties']) == areas:
+                            valid_dispute = d
+                            break
+
                 if valid_dispute:
+                    areas -= areas
                     areas.add(valid_dispute)
                 else:
                     issues.add((config.cc_disputed, tuple(sorted(areas))))
+                    problem_lines.add(line)
 
         # print warnings
         if issues:
             coords = tuple(reversed(Quad.from_ix(ix).poly.centroid.coords[0]))
             def err(s):
                 print '%s near %.3f %.3f' % (s, coords[0], coords[1])
+
+            #for ln in problem_lines:
+            #    print ln
 
             for i in issues:
                 type = i[0]
@@ -385,15 +401,16 @@ def process():
         with open(coast_ix_path) as f:
             coast_ix = pickle.load(f)
 
-    #final_output_path = os.path.join(tmp_dir, 'tagged_coastline')
+    print 'Tagging coastline with admin regions...'
+    final_output_path = os.path.join(tmp_dir, 'tagged_coastline')
     processed = analyze(coast_ix, admin_ix)
+    print 'Checking result for problems...'
     admin_info_path = os.path.join(data_dir, 'admin_index.csv')
     admin_info = load_admin_info(admin_info_path)
     verify(processed, admin_info)
-    #with open(final_output_path, 'w') as f:
-    #    pickle.dump(processed, f)
-
-    import pdb;pdb.set_trace()
+    print 'Check complete; writing final output...'
+    with open(final_output_path, 'w') as f:
+        pickle.dump(processed, f)
 
 def load_admin_info(path):
     info = {}
