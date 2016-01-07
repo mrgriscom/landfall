@@ -35,6 +35,11 @@ def vscale(v, k):
 def vadd(i, j):
     return tuple([x + y for (x, y) in zip(i, j)])
 
+#return i - j
+#i and j are any vector of the same dimension
+def vdiff(i, j):
+    return vadd(i, vscale(j, -1.))
+
 #normalize v; exception if norm(v) == 0
 #v is any vector in any dimension
 def vnorm(v):
