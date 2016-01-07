@@ -177,12 +177,23 @@ def build_admin_index(path):
 
     return ixfull, ixpartial
 
-def load_coastline(path):
+def load_coastline(path, patch_path):
     coastpolys = load_geometry(path)
+    patches = load_geometry(patch_path)
+    coastpolys = list(apply_patches(coastpolys, patches))
     coastline = list(all_rings(coastpolys))
     full, partial = spatial_decompose(coastline, MAX_DEPTH, verbose=True)
     assert not full
     return partial
+
+def apply_patches(coastpolys, patches):
+    for i, poly in enumerate(coastpolys):
+        for patch in patches:
+            if poly.intersects(patch):
+                print 'patching %d' % i
+                poly = poly.difference(patch)
+        for e in explode_poly(poly):
+            yield e
 
 def ix_ancestor(ix):
     for i in xrange(len(ix), -1, -1):
@@ -371,6 +382,14 @@ def process():
     else:
         print 'Resuing extracted coastline data'
 
+    noland_dir = os.path.join(data_dir, 'no_land')
+    noland_csv = os.path.join(tmp_dir, 'noland.csv')
+    if not os.path.exists(noland_csv):
+        print 'Extracting coastline patch data...'
+        shp_to_csv(find_with_ext(noland_dir, 'shp'), noland_csv)
+    else:
+        print 'Resuing extracted coastline patch data'
+
     admin_dir = os.path.join(data_dir, 'admin_areas')
     admin_csv = os.path.join(tmp_dir, 'admin.csv')
     if not os.path.exists(admin_csv):
@@ -393,7 +412,7 @@ def process():
     coast_ix_path = os.path.join(tmp_dir, 'coast_ix')
     if not os.path.exists(coast_ix_path):
         print 'Building coastline index...'
-        coast_ix = load_coastline(coast_csv)
+        coast_ix = load_coastline(coast_csv, noland_csv)
         with open(coast_ix_path, 'w') as f:
             pickle.dump(coast_ix, f)
     else:
