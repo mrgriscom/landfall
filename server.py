@@ -12,11 +12,31 @@ import tornado.websocket as websocket
 from optparse import OptionParser
 import logging
 import json
+import config
 
-import munsell as m
+from munsell import munsell as m
 m.init()
 
-class WebSocketTestHandler(websocket.WebSocketHandler):
+class OutputListHandler(web.RequestHandler):
+    def get(self):
+        outputs = []
+        for filename in sorted(os.listdir(config.OUTPUT_PATH)):
+            with open(os.path.join(config.OUTPUT_PATH, filename)) as f:
+                data = json.load(f)
+            del data['postings']
+            data['file'] = filename
+            data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
+            data['width'] = int(round(data['lonspan'] / data['res']))
+            outputs.append(data)
+        self.render('list.html', outputs=outputs)
+
+class RenderHandler(web.RequestHandler):
+    def get(self, tag):
+        with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
+            data = json.load(f)
+        self.render('render.html', data=data)
+
+class ColorProviderHandler(websocket.WebSocketHandler):
     def open(self):
         pass
 
@@ -48,14 +68,20 @@ class WebSocketTestHandler(websocket.WebSocketHandler):
 
 if __name__ == "__main__":
 
+    if not os.path.exists(config.OUTPUT_PATH):
+        os.mkdir(config.OUTPUT_PATH)
+
     try:
         port = int(sys.argv[1])
     except IndexError:
         port = 8000
 
     application = web.Application([
-        (r'/socket', WebSocketTestHandler),
-    ])
+        (r'/list', OutputListHandler),
+        (r'/render/(?P<tag>.*)', RenderHandler, {}, 'render'),
+        (r'/colors', ColorProviderHandler),
+        (r'/(.*)', web.StaticFileHandler, {'path': 'static'}),
+    ], template_path='templates', debug=True)
     application.listen(port)
 
     try:

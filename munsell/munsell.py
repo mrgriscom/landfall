@@ -1,6 +1,7 @@
 import re
 import math
 import bisect
+import os.path
 from colormath.color_objects import xyYColor, XYZColor, LabColor, sRGBColor
 from colormath.color_conversions import convert_color
 
@@ -37,7 +38,7 @@ def parse_line(ln):
     return ((h, v, c), toLab(x, y, Y))
 
 def init():
-    data = open('all.dat').readlines()[1:]
+    data = open(os.path.join(os.path.dirname(__file__), 'all.dat')).readlines()[1:]
     for ln in data:
         muns, lab = parse_line(ln)
         LUT[muns] = lab

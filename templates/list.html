@@ -1,0 +1,9 @@
+{% for output in outputs %}
+<div>
+<a href="{{ reverse_url('render', output['file']) }}">{{ output['file'] }}</a>
+{{ output['origin'] }}
+{{ output['lonspan'] }}&#xb0;
+{{ output['width'] }}px
+{{ output['range'] }}
+</div>
+{% end %}

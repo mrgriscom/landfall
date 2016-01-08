@@ -1,9 +1,5 @@
 function init() {
-    var data = DATA_CPT;
-
-    //for (var i = 0; i < data.postings.length; i++) {
-    //    data.postings[i] = [data.postings[i], []];
-    //}
+    var data = DATA;
 
     var canv;
     loadColors(function() {
@@ -16,7 +12,7 @@ NUM_COLORS = 6;
 STEPS = 1000;
 
 function loadColors(after) {
-    WS = new WebSocket('ws://localhost:8888/socket')
+    WS = new WebSocket('ws://' + location.host + '/colors')
     WS.onmessage = function(e) {
         COLORS = JSON.parse(e.data);
         COLORS = _.shuffle(COLORS); // randomize the hue order
@@ -167,7 +163,7 @@ function mk_canvas(w, h) {
 function setupMap(data, canv) {
     var $canv = $(canv);
 
-    COMPANION = window.open('companion.html', 'companion', 'width=600,height=600,location=no,menubar=no,toolbar=no,status=no,personalbar=no');
+    COMPANION = window.open('/companion.html', 'companion', 'width=600,height=600,location=no,menubar=no,toolbar=no,status=no,personalbar=no');
     COMPANION.onbeforeunload = function() { COMPANION = null; };
 
     window.onbeforeunload = function() {

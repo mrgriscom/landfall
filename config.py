@@ -1,4 +1,6 @@
 
+OUTPUT_PATH = 'output'
+
 cc_unclaimed = 'X0'
 cc_disputed = 'XX'
 cc_ignore = 'XI'
@@ -44,6 +46,7 @@ disputed_areas = {
     },
 }
 
+# TODO what is this for... cleanup?
 def fix(s):
     c = [' '.join(reversed(k.split(','))) for k in s.split(' ')]
     c = c + [c[0]]
