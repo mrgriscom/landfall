@@ -126,143 +126,67 @@ def postings(p0, data, bearing_res, bearing0, bearing1, near_dist):
 
 
 
-
-def lat_for_isodist_tangent(p0, lon):
-    dlon = geodesy.anglenorm(lon - p0[1])
-    x, y, z = geodesy.ll_to_ecefu((p0[0], dlon))
-    if abs(x) < geodesy.EPSILON:
-        return None
-    if x < 0:
-        x = -x
-        z = -z
-    return math.degrees(math.atan2(z, x))
-
-def lon_for_greatcircle_maxlat(p0, lat):
-    z = math.sin(math.radians(p0[0]))
-    if abs(lat) > 90. - geodesy.EPSILON:
-        x = 0
-    else:
-        x = z / math.tan(math.radians(lat))
-    y2 = 1. - x**2 - z**2
-    if y2 < 0:
-        return []
-    y = y2**.5
-    dlon = math.degrees(math.atan2(y, x))
-    return [geodesy.anglenorm(p0[1] + k*dlon) for k in (-1, 1)]
-
-# inclusive
-def in_lon_range(lon, lonmin, lonmax):
-    dlon = (lon - lonmin) % 360.
-    return dlon >= 0 and dlon <= (lonmax - lonmin) % 360.
-
-DEBUG = True
-def log(s):
-    if DEBUG:
-        print s
-
-def minmax_bbox_dist(p0, ll, ur):
-    lat, lon = p0
+def enclosing_circle_for_bbox(ll, ur):
+    """Choose a circle that encloses the lat/lon bounding box. Note that this will
+    not always choose the smallest enclosing circle, and there are certain
+    pathological cases that will yield a circle much larger than the bounding box
+    (such as high polar bboxes with longitude spans approaching 180 degrees), but
+    in practice with boxes of roughly equal latitude/longitude span it's good
+    enough."""
     latmin, lonmin = ll
     latmax, lonmax = ur
+    assert latmin <= latmax
+    assert (lonmax - lonmin) % 360. <= 180.
 
-    anti_lon = lon + 180.
-    anti_latmin = -latmax
-    anti_latmax = -latmin
-    anti_lonmin = lonmin + 180.
-    anti_lonmax = lonmax + 180.
-
-    def key_points():
-        for latbound in (latmin, latmax):
-            for lonbound in (lonmin, lonmax):
-                yield (latbound, lonbound)
-        for _lon in (lon, anti_lon):
-            if in_lon_range(_lon, lonmin, lonmax):
-                for latbound in (latmin, latmax):
-                    yield (latbound, _lon)
-        for _lon in (lonmin, lonmax):
-            key_lat = lat_for_isodist_tangent(p0, _lon)
-            if key_lat is not None and key_lat > latmin and key_lat < latmax:
-                yield (key_lat, _lon)
-
-    log(list(key_points()))
-    dists = [geodesy.distance(p0, key_point) for key_point in key_points()]
-
-    if lat >= latmin and lat <= latmax and in_lon_range(lon, lonmin, lonmax):
-        log('min at pode')
-        mindist = 0
-    else:
-        log('min at %s' % str(min(key_points(), key=lambda e: geodesy.distance(p0, e))))
-        mindist = min(dists)
-
-    if lat >= anti_latmin and lat <= anti_latmax and in_lon_range(lon, anti_lonmin, anti_lonmax):
-        log('max at antipode')
-        maxdist = .5 * EARTH_CIRCUMF
-    else:
-        log('max at %s' % str(max(key_points(), key=lambda e: geodesy.distance(p0, e))))
-        maxdist = max(dists)
-
-    return mindist, maxdist
-
-def minmax_bbox_bearing(p0, ll, ur):
-    lat, lon = p0
-    latmin, lonmin = ll
-    latmax, lonmax = ur
-
-    anti_latmin = -latmax
-    anti_latmax = -latmin
-    anti_lonmin = lonmin + 180.
-    anti_lonmax = lonmax + 180.
+    vA = geodesy.ll_to_ecefu((latmin, lonmin))
+    vB = geodesy.ll_to_ecefu((latmin, lonmax))
+    vC = geodesy.ll_to_ecefu((latmax, lonmin))
+    vD = geodesy.ll_to_ecefu((latmax, lonmax))
+    vAB = geodesy.vdiff(vB, vA)
+    vAC = geodesy.vdiff(vC, vA)
+    vCD = geodesy.vdiff(vD, vC)
     
-    # handles all boundary cases
-    if ((lat >= latmin and lat <= latmax and in_lon_range(lon, lonmin, lonmax)) or
-        (lat >= anti_latmin and lat <= anti_latmax and in_lon_range(lon, anti_lonmin, anti_lonmax))):
-        log('(anti)pode')
-        return None
-
-    def key_points():
-        for latbound, vtype in zip((latmin, latmax), ('b', 't')):
-            for lonbound, htype in zip((lonmin, lonmax), ('l', 'r')):
-                yield ((latbound, lonbound), vtype + htype)
-        key_lat = None
-        if latmin > 0:
-            key_lat = latmin
-        elif latmax < 0:
-            key_lat = latmax
-        if key_lat is not None:
-            for key_lon, type in zip(lon_for_greatcircle_maxlat(p0, key_lat), ('tang_l', 'tang_r')):
-                if in_lon_range(key_lon, lonmin, lonmax):
-                    yield ((key_lat, key_lon), type)
-
-    def inflection_points():
-        for key_point, type in key_points():
-            if type in ('tang_l', 'tang_r'):
-                yield key_point
-            else:
-                rev_bearing = geodesy.bearing(key_point, p0)
-                quadrant = math.floor(rev_bearing / 90.) % 4
-                if quadrant % 2 == {'tl': 0, 'tr': 1, 'bl': 1, 'br': 0}[type]:
-                    yield key_point
-
-    for infl_point in inflection_points():
-        bearing = geodesy.bearing(p0, infl_point)
-        print infl_point, bearing
-
-    return
-
-
-    if lat > latmin and lat < latmax and in_lon_range(lon, lonmin, lonmax):
-        log('min at pode')
-        mindist = 0
+    degenerate_points = None
+    if geodesy.vlen(vAC) < geodesy.EPSILON:
+        # d-lat = 0
+        degenerate_points = [vA, vB]
+    elif geodesy.vlen(vAB) < geodesy.EPSILON:
+        # south pole or d-lon = 0
+        if geodesy.vlen(vCD) < geodesy.EPSILON:
+            # north pole or d-lon = 0
+            degenerate_points = [vA, vC]
+        else:
+            vects = [vCD, vAC]
     else:
-        log('min at %s' % str(min(key_points(), key=lambda e: geodesy.distance(p0, e))))
-        mindist = min(dists)
+        vects = [vAB, vAC]
 
-    if lat > anti_latmin and lat < anti_latmax and in_lon_range(lon, anti_lonmin, anti_lonmax):
-        log('max at antipode')
-        maxdist = .5 * EARTH_CIRCUMF
+    if degenerate_points:
+        dp0, dp1 = degenerate_points
+        mean = geodesy.vscale(geodesy.vadd(dp0, dp1), .5)
+        if geodesy.vlen(mean) < geodesy.EPSILON:
+            # degenerate points are antipodal
+            ortho = geodesy.ll_to_ecefu((.5*(latmin+latmax), .5*(lonmin+lonmax)))
+        else:
+            ortho = geodesy.vnorm(mean)
     else:
-        log('max at %s' % str(max(key_points(), key=lambda e: geodesy.distance(p0, e))))
-        maxdist = max(dists)
+        ortho = geodesy.vnorm(geodesy.crossp(*vects))
+    center = geodesy.ecefu_to_ll(ortho)
+    dist = geodesy.distance(center, (latmin, lonmin))
+    return center, dist
 
-    return mindist, maxdist
+def bounds_to_circle(p0, center, radius):
+    dist = geodesy.distance(p0, center)
+    mindist = max(0, dist - radius)
+    maxdist = min(.5 * EARTH_CIRCUMF, dist + radius)
 
+    sin_ratio = math.sin(radius / geodesy.EARTH_MEAN_RAD) / math.sin(dist / geodesy.EARTH_MEAN_RAD)
+    if abs(sin_ratio) < 1:
+        angle = math.degrees(math.asin(sin_ratio))
+        bearing = geodesy.bearing(p0, center)
+        minbear = geodesy.anglenorm(bearing - angle)
+        maxbear = geodesy.anglenorm(bearing + angle)
+    else:
+        minbear = -180.
+        maxbear = 180.
+
+    return mindist, maxdist, minbear, maxbear
