@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document><Folder><name>kml</name>
+{% for seg in segments %}
+  <Placemark>
+	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+      <LineString><altitudeMode>clampToGround</altitudeMode><tessellate>1</tessellate>
+<coordinates>
+{% for p in seg %}
+{{ p[1] }},{{ p[0] }}
+{% end %}
+</coordinates></LineString>
+  </Placemark>
+{% end %}
+</Folder></Document></kml>

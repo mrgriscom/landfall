@@ -1,4 +1,5 @@
-from landfall import *
+from deprecated_landfall import *
+import math
 import geodesy
 from shapely.geometry import LineString, LinearRing
 
@@ -48,7 +49,7 @@ EARTH_CIRCUMF = 2*math.pi*geodesy.EARTH_MEAN_RAD
 # TODO: bearing ranges crossing north
 def postings(p0, data, bearing_res, bearing0, bearing1, near_dist):
     pixels = int(round((bearing1 - bearing0) / bearing_res))
-    output = [None] * pixels
+    output = [(-1, set())] * pixels
 
     def px(bear):
         return int((bear - bearing0) / bearing_res)
@@ -58,7 +59,7 @@ def postings(p0, data, bearing_res, bearing0, bearing1, near_dist):
             return
         if px < 0 or px >= pixels:
             return
-        if output[px] is None or dist < output[px][0]:
+        if output[px][0] < 0 or dist < output[px][0]:
             output[px] = (dist, areas)
 
     def fill((dist, bear, x), (prev_dist, prev_bear, prev_x), areas):

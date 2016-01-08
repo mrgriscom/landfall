@@ -50,6 +50,7 @@ def init():
         LUT[(0, lm, 0)] = toLab(whitepoint.xyy_x, whitepoint.xyy_y, ll)
 
     lums = sorted(lums.keys())
+    print 'munsell initialized'
 
 def mix(k, a, b):
     return (1-k)*a + k*b
