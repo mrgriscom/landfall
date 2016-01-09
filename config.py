@@ -1,10 +1,8 @@
 
+# Path where final land-casts are stored
 OUTPUT_PATH = 'output'
 
-cc_unclaimed = 'X0'
-cc_disputed = 'XX'
-cc_ignore = 'XI'
-
+# Areas to suppress warnings that the land is not claimed by any entity
 expected_unclaimed = {
     'SPR': {
         'name': 'Spratly Islands',
@@ -16,6 +14,8 @@ expected_unclaimed = {
     },
 }
 
+# Areas/countries to suppress warnings that the country's land is not fully
+# covered by subdivisions.
 incompletely_subdivided = {
     'CN': 'all',
     'NO': 'all',
@@ -27,12 +27,8 @@ incompletely_subdivided = {
           )''', # great lakes + patch of delaware river in PA
 }
 
-defacto = {
-    'EH': ['MA'],
-    'XAB': ['GE'],
-    'XNC': ['CY'],
-}
-
+# Areas to suppress warnings that land is claimed by multiple entities, i.e.,
+# a known conflict.
 disputed_areas = {
     'CR': {
         'name': 'Crimea',
@@ -46,8 +42,10 @@ disputed_areas = {
     },
 }
 
-# TODO what is this for... cleanup?
-def fix(s):
-    c = [' '.join(reversed(k.split(','))) for k in s.split(' ')]
-    c = c + [c[0]]
-    return 'POLYGON ((%s))' % ','.join(c)
+# Further confliced areas where an entire entity is the conflict area.
+defacto = {
+    'EH': ['MA'],
+    'XAB': ['GE'],
+    'XNC': ['CY'],
+}
+

@@ -125,7 +125,7 @@ def postings(p0, data, bearing_res, bearing0, bearing1, near_dist):
             anti_first = None
             for v in coords:
                 dist, bear = distbear(ctx, swap(v))
-                bear = bear % 360.
+                bear = (bear or 0.) % 360. # or0. hack for antipodal
                 x = px(bear)
                 anti_dist = EARTH_CIRCUMF - dist
                 anti_bear = (bear + 180.) % 360.

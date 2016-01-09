@@ -22,9 +22,15 @@ from munsell import munsell as m
 m.init()
 
 IX = None
+def load_index():
+    global IX
+    if IX is None:
+        print 'loading index...'
+        IX = pickle.load(open('data/tmp/tagged_coastline'))
+    return IX
 
 class LandfallHandler(web.RequestHandler):
-    def get(self): # should be POST
+    def get(self): # technically, should be POST
         _origin = self.get_argument('origin')
         size = int(self.get_argument('size'))
         _range = self.get_argument('range', '0,360')
@@ -45,13 +51,8 @@ class LandfallHandler(web.RequestHandler):
         res = lonspan / size
         print origin, size, range, lonspan, res, mindist
 
-        global IX
-        if IX is None:
-            print 'loading index...'
-            IX = pickle.load(open('data/tmp/tagged_coastline'))
-
         print 'generating...'
-        postings = alt.postings(origin, IX, res, range[0], range[1], mindist)
+        postings = alt.postings(origin, load_index(), res, range[0], range[1], mindist)
 
         print 'saving...'
         output = {
@@ -89,6 +90,8 @@ class KmlHandler(web.RequestHandler):
     def get(self, tag):
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
+
+        # TODO(clean this up):
 
         antipode = (-data['origin'][0], geodesy.anglenorm(data['origin'][1] + 180.))
 

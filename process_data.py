@@ -14,6 +14,10 @@ import shapely.geos
 from shapely.geometry import LineString, LinearRing, MultiLineString, Polygon, MultiPolygon, GeometryCollection, box
 import config
 
+CC_UNCLAIMED = 'X0'
+CC_DISPUTED = 'XX'
+CC_IGNORE = 'XI'
+
 OVERLAP_NONE = 0
 OVERLAP_PARTIAL = 1
 OVERLAP_FULL = 2
@@ -118,49 +122,17 @@ def explode_lines(geom):
     else:
         return []
 
-def render(decomp, depth):
-    full, partial = decomp
-
-    dim = 2**depth
-    BITMAP = [[0 for i in xrange(dim)] for j in xrange(dim)]
-    def paint(ix, val):
-        z, x, y = 0, 0, 0
-        for k in ix:
-            k = int(k)
-            z += 1
-            x = 2*x + k % 2
-            y = 2*y + k // 2
-        c = {0: 0, 1: 128, 2: 255}[val]
-        celldim = 2**(depth - z)
-        for i in xrange(celldim):
-            for j in xrange(celldim):
-                BITMAP[y*celldim + j][x*celldim + i] = c
-    for ix in full:
-        paint(ix, OVERLAP_FULL)
-    for ix in partial.keys():
-        paint(ix, OVERLAP_PARTIAL)
-
-    import os
-    import tempfile
-    raw = tempfile.mktemp('.grey')
-    img = tempfile.mktemp('.png')
-
-    with open(raw, 'w') as f:
-        f.write(''.join(''.join(chr(col) for col in row) for row in BITMAP))
-    os.popen('convert -size %dx%d -depth 8 gray:%s %s' % (dim, dim, raw, img))
-    os.popen('gnome-open %s' % img)
-
 def build_admin_index(path):
     admins = load_geometry(path, 'CODE')
     print '%d areas' % len(admins)
 
     for k, v in config.expected_unclaimed.iteritems():
-        admins['%s-%s' % (config.cc_unclaimed, k)] = [shapely.wkt.loads(v['bounds'])]
+        admins['%s-%s' % (CC_UNCLAIMED, k)] = [shapely.wkt.loads(v['bounds'])]
     for k, v in config.incompletely_subdivided.iteritems():
         if v != 'all':
-            admins['%s-%s' % (config.cc_ignore, k)] = [shapely.wkt.loads(v)]
+            admins['%s-%s' % (CC_IGNORE, k)] = [shapely.wkt.loads(v)]
     for k, v in config.disputed_areas.iteritems():
-        admins['%s-%s' % (config.cc_disputed, k)] = [shapely.wkt.loads(v['bounds'])]
+        admins['%s-%s' % (CC_DISPUTED, k)] = [shapely.wkt.loads(v['bounds'])]
     print '%d areas (with supplemental)' % len(admins)
 
     ixfull = collections.defaultdict(set)
@@ -199,24 +171,33 @@ def ix_ancestor(ix):
     for i in xrange(len(ix), -1, -1):
         yield ix[:i]
 
+def is_degenerate_line(line):
+    return (line.is_empty or line.length < 1e-9)
+
 def analyze(coast, admin):
     admin_full, admin_partial = admin
     output = {}
     for ix, geom in coast.iteritems():
         lines = list(itertools.chain(*map(explode_lines, geom)))
-        coverage = dict((ln, set()) for ln in lines)
+        coverage = dict((ln, set()) for ln in lines if not is_degenerate_line(ln))
 
         # partial admin areas
         for partial_area, admin_bound in admin_partial.get(ix, {}).iteritems():
             for line in list(coverage.keys()):
                 admin_line = admin_bound.intersection(line)
-                if admin_line.is_empty or admin_line.length < 1e-9:
+                if is_degenerate_line(admin_line):
                     continue
 
                 if line.equals(admin_line):
-                    coverage[line].add(partial_area)
+                    remainder = None
                 else:
                     remainder = line.difference(admin_bound)
+                    if is_degenerate_line(remainder):
+                        remainder = None
+
+                if remainder is None:
+                    coverage[line].add(partial_area)
+                else:
                     cov = coverage.pop(line)
                     for x in explode_lines(remainder):
                         coverage[x] = set(cov)
@@ -233,39 +214,64 @@ def analyze(coast, admin):
         output[ix] = coverage
     return output
 
-def verify(output, admin_info):
+class TopologyError(object):
+    pass
+
+class UnclaimedLand(TopologyError):
+    def msg(self):
+        return 'unexpected unclaimed land'
+
+class DisputedLand(TopologyError):
+    def __init__(self, parties):
+        self.parties = parties
+
+    def msg(self):
+        return 'unexpected disputed area: %s' % ', '.join(sorted(self.parties))
+
+class ParentWithoutSubdivision(TopologyError):
+    def __init__(self, parent):
+        self.parent = parent
+
+    def msg(self):
+        return 'parent w/o subdivision: %s' % self.parent
+
+class SubdivisionWithoutParent(TopologyError):
+    def __init__(self, subdiv):
+        self.subdiv = subdiv
+
+    def msg(self):
+        return 'subdivision not covered by parent: %s' % self.subdiv
+
+def verify(output, admin_info, verbose=False):
     subdiv_parents = set(e['parent'] for e in admin_info.values() if e['type'] == 'subdivision')
 
     for ix, coverage in sorted(output.iteritems()):
         issues = set()
         problem_lines = set()
         for line, areas in coverage.iteritems():
-            # TODO fix this in indexing phase
-            if len(line.coords) == 2 and line.length < 1e-9:
-                continue
-
             special = {}
-            for spec in (config.cc_unclaimed, config.cc_ignore, config.cc_disputed):
+            for spec in (CC_UNCLAIMED, CC_IGNORE, CC_DISPUTED):
                 special[spec] = set(a for a in areas if a.startswith('%s-' % spec))
                 areas -= special[spec]
 
             # check for issues
-            if not areas and not special[config.cc_unclaimed]:
-                issues.add((config.cc_unclaimed,))
+
+            if not areas and not special[CC_UNCLAIMED]:
+                issues.add(UnclaimedLand())
 
             parents = set(admin_info[a]['parent'] for a in areas if admin_info[a]['type'] == 'subdivision')
             for a in areas:
                 info = admin_info[a]
 
                 if info['type'] == 'subdivision' and info['parent'] not in areas:
-                    issues.add(('XPAR', a))
+                    issues.add(SubdivisionWithoutParent(a))
 
                 if a in subdiv_parents and a not in parents:
-                    cci = '%s-%s' % (config.cc_ignore, a)
-                    if cci in special[config.cc_ignore] or config.incompletely_subdivided.get(a) == 'all':
+                    cci = '%s-%s' % (CC_IGNORE, a)
+                    if cci in special[CC_IGNORE] or config.incompletely_subdivided.get(a) == 'all':
                         pass
                     else:
-                        issues.add(('PPAR', a))
+                        issues.add(ParentWithoutSubdivision(a))
                         problem_lines.add(line)
             areas -= parents
 
@@ -279,7 +285,7 @@ def verify(output, admin_info):
                             break
 
                 if not valid_dispute:
-                    for d in special[config.cc_disputed]:
+                    for d in special[CC_DISPUTED]:
                         did = d.split('-')[-1]
                         if set(config.disputed_areas[did]['parties']) == areas:
                             valid_dispute = d
@@ -289,29 +295,20 @@ def verify(output, admin_info):
                     areas -= areas
                     areas.add(valid_dispute)
                 else:
-                    issues.add((config.cc_disputed, tuple(sorted(areas))))
+                    issues.add(DisputedLand(areas))
                     problem_lines.add(line)
 
         # print warnings
         if issues:
             coords = tuple(reversed(Quad.from_ix(ix).poly.centroid.coords[0]))
-            def err(s):
-                print '%s near %.3f %.3f' % (s, coords[0], coords[1])
 
-            #for ln in problem_lines:
-            #    print ln
+            if verbose and problem_lines:
+                print '-----'
+                for ln in problem_lines:
+                    print ln
 
-            for i in issues:
-                type = i[0]
-                if type == config.cc_unclaimed:
-                    err('unexpected unclaimed land')
-                elif type == 'XPAR':
-                    err('subdivision not covered by parent [%s]' % i[1])
-                elif type == 'PPAR':
-                    err('parent w/o a subdivision [%s]' % i[1])
-                elif type == config.cc_disputed:
-                    err('disputed area [%s]' % ', '.join(i[1]))
-
+            for iss in issues:
+                print '%s; near %.3f %.3f' % (iss.msg(), coords[0], coords[1])
 
 def load_geometry(path, key=None):
     """if coalesce=true, all polys are part of one big multipolygon; if false,
@@ -324,7 +321,7 @@ def load_geometry(path, key=None):
             if (i+1) % 10000 == 0:
                 print 'loaded %d' % (i+1)
 
-            # quick fix for antarctica
+            # quick fix for antarctica -- isn't converted to wkt correctly
             if row['WKT'] == 'POLYGON ((-180 -90,-180 -60,180 -60,180 -90))':
                 row['WKT'] = 'POLYGON ((-180 -90,-180 -60,180 -60,180 -90,-180 -90))'
 
@@ -380,7 +377,7 @@ def process():
         print 'Extracting coastline data...'
         shp_to_csv(find_with_ext(coast_dir, 'shp'), coast_csv)
     else:
-        print 'Resuing extracted coastline data'
+        print 'Reusing extracted coastline data'
 
     noland_dir = os.path.join(data_dir, 'no_land')
     noland_csv = os.path.join(tmp_dir, 'noland.csv')
@@ -388,7 +385,7 @@ def process():
         print 'Extracting coastline patch data...'
         shp_to_csv(find_with_ext(noland_dir, 'shp'), noland_csv)
     else:
-        print 'Resuing extracted coastline patch data'
+        print 'Reusing extracted coastline patch data'
 
     admin_dir = os.path.join(data_dir, 'admin_areas')
     admin_csv = os.path.join(tmp_dir, 'admin.csv')
@@ -396,7 +393,7 @@ def process():
         print 'Extracting admin data...'
         shp_to_csv(find_with_ext(admin_dir, 'shp'), admin_csv)
     else:
-        print 'Resuing extracted admin data'
+        print 'Reusing extracted admin data'
 
     admin_ix_path = os.path.join(tmp_dir, 'admin_ix')
     if not os.path.exists(admin_ix_path):
