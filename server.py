@@ -96,7 +96,7 @@ class KmlHandler(web.RequestHandler):
         prevdist = None
         for i, (dist, _) in enumerate(itertools.chain(data['postings'], [data['postings'][0]])):
             if dist < 0:
-                dist = alt.EARTH_CIRCUMF - data['min_dist']
+                dist = alt.EARTH_CIRCUMF - data['min_dist'] # TODO go all the way back to start but insert interstitial point
             bear = data['range'][0] + i * data['res']
             p = geodesy.plot(data['origin'], bear, dist)[0]
             if prevdist is not None and (dist > .5*alt.EARTH_CIRCUMF) != (prevdist > .5*alt.EARTH_CIRCUMF):
