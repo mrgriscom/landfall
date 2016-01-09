@@ -292,8 +292,7 @@ def verify(output, admin_info, verbose=False):
                             break
 
                 if valid_dispute:
-                    areas -= areas
-                    areas.add(valid_dispute)
+                    areas = set([valid_dispute])
                 else:
                     issues.add(DisputedLand(areas))
                     problem_lines.add(line)
