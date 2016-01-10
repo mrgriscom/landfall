@@ -33,6 +33,10 @@ def distbear_init(p0):
         return dist, bear
     return distbear
 
+def dist_is_axial(dist, cutoff=.1):
+    dist = dist % EARTH_FARTHEST
+    return (dist < cutoff or dist > EARTH_FARTHEST - cutoff)
+
 class DepthBuffer(object):
     def __init__(self, p0, bearing0, bearing1, res, min_dist):
         self.bearing0 = float(bearing0)
@@ -117,8 +121,7 @@ class DepthBuffer(object):
                     (min(px, prev_px) == 0 and max(px, prev_px) == self.size - 1 and self.lonspan == 360.))
         if adjacent:
             return
-        no_converge_cutoff = .1
-        if dist < no_converge_cutoff or dist > EARTH_FARTHEST - no_converge_cutoff:
+        if dist_is_axial(dist):
             # segment crosses origin or antipode and will never converge
             return
 
