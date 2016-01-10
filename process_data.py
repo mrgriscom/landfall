@@ -181,6 +181,8 @@ def remove_line(ln):
     polar_cutoff = 90. - geodesy.EPSILON
     _, latmin, _, latmax = ln.bounds
     if latmax < -polar_cutoff or latmin > polar_cutoff:
+        # these 'lines' (really just polar singularities) provide no value
+        # and slow things down later
         return True
     return False
 

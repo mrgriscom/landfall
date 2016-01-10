@@ -111,16 +111,15 @@ class DepthBuffer(object):
         px = self.post(dist, bear, areas)
         return dist, bear, px
 
-    def fill(self, p, antip, areas, dist, bear, px, prev, depth=0):
+    def fill(self, p, antip, areas, dist, bear, px, prev):
         prev_p, prev_dist, prev_bear, prev_px = prev
         adjacent = (abs(px - prev_px) <= 1 or
                     (min(px, prev_px) == 0 and max(px, prev_px) == self.size - 1 and self.lonspan == 360.))
         if adjacent:
             return
-        if depth == 30:
-            # lines that cross origin or antipode will never converge
-            # TODO find a more elegant way of handling this, likely at same time as handling
-            # min-dist crossovers
+        no_converge_cutoff = .1
+        if dist < no_converge_cutoff or dist > EARTH_FARTHEST - no_converge_cutoff:
+            # segment crosses origin or antipode and will never converge
             return
 
         xyz0 = geodesy.ll_to_ecefu(p)
@@ -128,8 +127,8 @@ class DepthBuffer(object):
         midp = geodesy.ecefu_to_ll(geodesy.vnorm(geodesy.vscale(geodesy.vadd(xyz0, xyz1), .5)))
 
         middist, midbear, midpx = self.project_point(midp, antip, areas)
-        self.fill(midp, antip, areas, middist, midbear, midpx, (p, dist, bear, px), depth=depth+1)
-        self.fill(midp, antip, areas, middist, midbear, midpx, prev, depth=depth+1)
+        self.fill(midp, antip, areas, middist, midbear, midpx, (p, dist, bear, px))
+        self.fill(midp, antip, areas, middist, midbear, midpx, prev)
 
 class SegmentSequencer(object):
     def __init__(self, data, p0, db):
