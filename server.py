@@ -17,6 +17,7 @@ import geodesy
 import pickle
 import landfall as lf
 import time
+import itertools
 
 from munsell import munsell as m
 m.init()
@@ -28,6 +29,7 @@ def load_index():
         print 'loading index...'
         IX = pickle.load(open('data/tmp/tagged_coastline'))
         print 'index loaded.'
+        # TODO rebalance index chunks so that each has at least 500 points or so
     return IX
 
 class LandfallHandler(web.RequestHandler):

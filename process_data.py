@@ -13,6 +13,7 @@ import shapely.validation
 import shapely.geos
 from shapely.geometry import LineString, LinearRing, MultiLineString, Polygon, MultiPolygon, GeometryCollection, box
 import config
+import geodesy
 
 CC_UNCLAIMED = 'X0'
 CC_DISPUTED = 'XX'
@@ -174,12 +175,23 @@ def ix_ancestor(ix):
 def is_degenerate_line(line):
     return (line.is_empty or line.length < 1e-9)
 
+def remove_line(ln):
+    if is_degenerate_line(ln):
+        return True
+    polar_cutoff = 90. - geodesy.EPSILON
+    _, latmin, _, latmax = ln.bounds
+    if latmax < -polar_cutoff or latmin > polar_cutoff:
+        return True
+    return False
+
 def analyze(coast, admin):
     admin_full, admin_partial = admin
     output = {}
     for ix, geom in coast.iteritems():
         lines = list(itertools.chain(*map(explode_lines, geom)))
-        coverage = dict((ln, set()) for ln in lines if not is_degenerate_line(ln))
+        coverage = dict((ln, set()) for ln in lines if not remove_line(ln))
+        if not coverage:
+            continue
 
         # partial admin areas
         for partial_area, admin_bound in admin_partial.get(ix, {}).iteritems():
@@ -211,8 +223,7 @@ def analyze(coast, admin):
             for areas in coverage.values():
                 areas.add(full_area)
 
-        if coverage:
-            output[ix] = coverage
+        output[ix] = coverage
     return output
 
 class TopologyError(object):
