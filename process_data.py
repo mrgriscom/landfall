@@ -14,6 +14,7 @@ import shapely.geos
 from shapely.geometry import LineString, LinearRing, MultiLineString, Polygon, MultiPolygon, GeometryCollection, box
 import config
 import geodesy
+import shutil
 from optparse import OptionParser
 
 parser = OptionParser()
