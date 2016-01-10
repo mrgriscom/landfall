@@ -14,6 +14,15 @@ import shapely.geos
 from shapely.geometry import LineString, LinearRing, MultiLineString, Polygon, MultiPolygon, GeometryCollection, box
 import config
 import geodesy
+from optparse import OptionParser
+
+parser = OptionParser()
+parser.add_option('--refresh_coast', action='store_true', dest='refresh_coast',
+                  help='refresh coast data from openstreetmap')
+parser.add_option('--update_coast_corrections', action='store_true', dest='update_coast_corrections',
+                  help='reprocess corrections to coastline')
+parser.add_option('--update_admin_areas', action='store_true', dest='update_admin_areas',
+                  help='reprocess admin areas')
 
 CC_UNCLAIMED = 'X0'
 CC_DISPUTED = 'XX'
@@ -369,14 +378,40 @@ def shp_to_csv(shppath, csvpath):
     os.popen('ogr2ogr -f csv -lco GEOMETRY=AS_WKT -progress %s %s' % (tmp, shppath))
     os.popen('mv "%s" "%s"' % (find_with_ext(tmp, 'csv'), csvpath))
 
-def process():
+def process(options):
     data_dir = os.path.join(os.path.dirname(__file__), 'data')
     tmp_dir = os.path.join(data_dir, 'tmp')
+
+    admin_info_path = os.path.join(data_dir, 'admin_index.csv')
+    admin_dir = os.path.join(data_dir, 'admin_areas')
+    noland_dir = os.path.join(data_dir, 'no_land')
+
+    coast_dir = os.path.join(tmp_dir, 'land-polygons-complete-4326')
+    coast_csv = os.path.join(tmp_dir, 'coast.csv')
+    noland_csv = os.path.join(tmp_dir, 'noland.csv')
+    admin_csv = os.path.join(tmp_dir, 'admin.csv')
+    admin_ix_path = os.path.join(tmp_dir, 'admin_ix')
+    coast_ix_path = os.path.join(tmp_dir, 'coast_ix')
+    final_output_path = os.path.join(tmp_dir, 'tagged_coastline')
 
     if not os.path.exists(tmp_dir):
         os.mkdir(tmp_dir)
 
-    coast_dir = os.path.join(tmp_dir, 'land-polygons-complete-4326')
+    wipeouts = set()
+    if options.refresh_coast:
+        wipeouts.update([coast_dir, coast_csv, coast_ix_path, final_output_path])
+    if options.update_coast_corrections:
+        wipeouts.update([noland_csv, coast_ix_path, final_output_path])
+    if options.update_admin_areas:
+        wipeouts.update([admin_csv, admin_ix_path, final_output_path])
+    for w in wipeouts:
+        if os.path.exists(w):
+            print 'wiping out %s' % w
+            if w in (coast_dir,):
+                shutil.rmtree(w)
+            else:
+                os.remove(w)
+
     if not os.path.exists(coast_dir):
         print 'Downloading coastline data...'
         zip_path = tempfile.mktemp()
@@ -385,30 +420,24 @@ def process():
     else:
         print 'Reusing existing coastline data'
 
-    coast_csv = os.path.join(tmp_dir, 'coast.csv')
     if not os.path.exists(coast_csv):
         print 'Extracting coastline data...'
         shp_to_csv(find_with_ext(coast_dir, 'shp'), coast_csv)
     else:
         print 'Reusing extracted coastline data'
 
-    noland_dir = os.path.join(data_dir, 'no_land')
-    noland_csv = os.path.join(tmp_dir, 'noland.csv')
     if not os.path.exists(noland_csv):
         print 'Extracting coastline patch data...'
         shp_to_csv(find_with_ext(noland_dir, 'shp'), noland_csv)
     else:
         print 'Reusing extracted coastline patch data'
 
-    admin_dir = os.path.join(data_dir, 'admin_areas')
-    admin_csv = os.path.join(tmp_dir, 'admin.csv')
     if not os.path.exists(admin_csv):
         print 'Extracting admin data...'
         shp_to_csv(find_with_ext(admin_dir, 'shp'), admin_csv)
     else:
         print 'Reusing extracted admin data'
 
-    admin_ix_path = os.path.join(tmp_dir, 'admin_ix')
     if not os.path.exists(admin_ix_path):
         print 'Building admin area index...'
         admin_ix = build_admin_index(admin_csv)
@@ -419,7 +448,6 @@ def process():
         with open(admin_ix_path) as f:
             admin_ix = pickle.load(f)
 
-    coast_ix_path = os.path.join(tmp_dir, 'coast_ix')
     if not os.path.exists(coast_ix_path):
         print 'Building coastline index...'
         coast_ix = load_coastline(coast_csv, noland_csv)
@@ -431,10 +459,8 @@ def process():
             coast_ix = pickle.load(f)
 
     print 'Tagging coastline with admin regions...'
-    final_output_path = os.path.join(tmp_dir, 'tagged_coastline')
     processed = analyze(coast_ix, admin_ix)
     print 'Checking result for problems...'
-    admin_info_path = os.path.join(data_dir, 'admin_index.csv')
     admin_info = load_admin_info(admin_info_path)
     verify(processed, admin_info)
     print 'Check complete; writing final output...'
@@ -451,7 +477,8 @@ def load_admin_info(path):
 
 if __name__ == "__main__":
 
-    process()
+    (options, args) = parser.parse_args()
+    process(options)
 
 
 
