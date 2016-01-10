@@ -2,6 +2,8 @@ import math
 import geodesy
 from shapely.geometry import LineString, LinearRing
 import process_data as pd
+import Queue
+import itertools
 
 EARTH_CIRCUMF = 2*math.pi*geodesy.EARTH_MEAN_RAD
 EARTH_FARTHEST = .5 * EARTH_CIRCUMF
@@ -129,26 +131,53 @@ class DepthBuffer(object):
         self.fill(midp, antip, areas, middist, midbear, midpx, (p, dist, bear, px), depth=depth+1)
         self.fill(midp, antip, areas, middist, midbear, midpx, prev, depth=depth+1)
 
+class SegmentSequencer(object):
+    def __init__(self, data, p0, db):
+        self.data = data
+        self.p0 = p0
+        self.db = db
+        self.q = Queue.PriorityQueue()
+        self.all_ixs = set(itertools.chain(*map(pd.ix_ancestor, data.keys())))
+        for ix in ('0', '1'):
+            for antip in (True, False):
+                self.add(ix, antip)
+
+    def add(self, ix, antip):
+        bbox = pd.Quad.from_ix(ix)
+        bounds = bounds_for_bbox(self.p0, (bbox.y1, bbox.x0), (bbox.y0, bbox.x1))
+        if antip:
+            bounds = (EARTH_CIRCUMF - bounds[1],
+                      EARTH_CIRCUMF - bounds[0],
+                      geodesy.anglenorm(bounds[2]+180.),
+                      geodesy.anglenorm(bounds[3]+180.))
+        self.q.put((bounds[0], ix, antip, bounds))
+
+    def process_next(self):
+        _, ix, antip, bounds = self.q.get(False) # empty caught in caller
+        mindist, _, minbear, maxbear = bounds
+        if not self.db.dist_test(mindist, minbear, maxbear):
+            return
+        print ('%s%s' % (ix, '-' if antip else '+')).ljust(15), mindist
+        if ix in self.data:
+            return (ix, antip)
+        else:
+            for i in xrange(4):
+                child_ix = ix + str(i)
+                if child_ix in self.all_ixs:
+                    self.add(child_ix, antip)
+
+    def __iter__(self):
+        while True:
+            try:
+                next = self.process_next()
+            except Queue.Empty:
+                break
+            if next is not None:
+                yield next
+
 def postings(p0, data, bearing_res, bearing0, bearing1, near_dist):
     db = DepthBuffer(p0, bearing0, bearing1, bearing_res, near_dist)
-
-    thresholds = {}
-    for ix in data.keys():
-        bbox = pd.Quad.from_ix(ix)
-        bounds = bounds_for_bbox(p0, (bbox.y1, bbox.x0), (bbox.y0, bbox.x1))
-        thresholds[(ix, False)] = bounds
-        thresholds[(ix, True)] = (EARTH_CIRCUMF - bounds[1],
-                                  EARTH_CIRCUMF - bounds[0],
-                                  geodesy.anglenorm(bounds[2]+180.),
-                                  geodesy.anglenorm(bounds[3]+180.))
-    segment_order = sorted(thresholds.keys(), key=lambda ix: thresholds[ix][0])
-
-    for segnum, (ix, antip) in enumerate(segment_order):
-        mindist, _, minbear, maxbear = thresholds[(ix, antip)]
-        if not db.dist_test(mindist, minbear, maxbear):
-            continue
-        print ix, mindist
-
+    for ix, antip in SegmentSequencer(data, p0, db):
         segment = data[ix]
         for line, areas in segment.iteritems():
             coords = line.coords
@@ -160,6 +189,9 @@ def postings(p0, data, bearing_res, bearing0, bearing1, near_dist):
                 prev = db.project_segment(swap(v), antip, prev, areas)
 
     return db.output()
+
+
+
 
 def enclosing_circle_for_bbox(ll, ur):
     """Choose a circle that encloses the lat/lon bounding box. Note that this will
@@ -226,7 +258,67 @@ def bounds_to_circle(p0, center, radius):
 
     return mindist, maxdist, minbear, maxbear
 
+
+def lat_for_isodist_tangent(p0, lon):
+    dlon = geodesy.anglenorm(lon - p0[1])
+    x, y, z = geodesy.ll_to_ecefu((p0[0], dlon))
+    if abs(x) < geodesy.EPSILON:
+        return None
+    if x < 0:
+        x = -x
+        z = -z
+    return math.degrees(math.atan2(z, x))
+
+# inclusive
+def in_lon_range(lon, lonmin, lonmax):
+    dlon = (lon - lonmin) % 360.
+    return dlon >= 0 and dlon <= (lonmax - lonmin) % 360.
+
+def minmax_bbox_dist(p0, ll, ur):
+    lat, lon = p0
+    latmin, lonmin = ll
+    latmax, lonmax = ur
+
+    anti_lon = lon + 180.
+    anti_latmin = -latmax
+    anti_latmax = -latmin
+    anti_lonmin = lonmin + 180.
+    anti_lonmax = lonmax + 180.
+
+    def key_points():
+        for latbound in (latmin, latmax):
+            for lonbound in (lonmin, lonmax):
+                yield (latbound, lonbound)
+        for _lon in (lon, anti_lon):
+            if in_lon_range(_lon, lonmin, lonmax):
+                for latbound in (latmin, latmax):
+                    yield (latbound, _lon)
+        for _lon in (lonmin, lonmax):
+            key_lat = lat_for_isodist_tangent(p0, _lon)
+            if key_lat is not None and key_lat > latmin and key_lat < latmax:
+                yield (key_lat, _lon)
+
+    dists = [geodesy.distance(p0, key_point) for key_point in key_points()]
+
+    if lat >= latmin and lat <= latmax and in_lon_range(lon, lonmin, lonmax):
+        #log('min at pode')
+        mindist = 0
+    else:
+        #log('min at %s' % str(min(key_points(), key=lambda e: geodesy.distance(p0, e))))
+        mindist = min(dists)
+
+    if lat >= anti_latmin and lat <= anti_latmax and in_lon_range(lon, anti_lonmin, anti_lonmax):
+        #log('max at antipode')
+        maxdist = .5 * EARTH_CIRCUMF
+    else:
+        #log('max at %s' % str(max(key_points(), key=lambda e: geodesy.distance(p0, e))))
+        maxdist = max(dists)
+
+    return mindist, maxdist
+
 def bounds_for_bbox(p0, ll, ur):
     center, radius = enclosing_circle_for_bbox(ll, ur)
-    # TODO: use exact computation for distance thresholds
-    return bounds_to_circle(p0, center, radius)
+    mindist, maxdist = minmax_bbox_dist(p0, ll, ur)
+    _, _, minbear, maxbear = bounds_to_circle(p0, center, radius)
+    return mindist, maxdist, minbear, maxbear
+    

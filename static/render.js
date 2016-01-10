@@ -197,7 +197,8 @@ function setupMap(data, canv) {
 
             var xn = MIN[x][0] / $canv.width();
             var dist = MIN[x][1];
-            var bearing = data.range[0] * (1-xn) + data.range[1] * xn;
+            var fixmod = function(a, b) { return ((a % b) + b) % b; }
+            var bearing = data.range[0] + (fixmod(data.range[1] - data.range[0], 360.) || 360.) * xn;
 
             var target = line_plotter(data.origin, bearing)(dist);
             console.log(target);

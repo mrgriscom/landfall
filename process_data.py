@@ -211,7 +211,8 @@ def analyze(coast, admin):
             for areas in coverage.values():
                 areas.add(full_area)
 
-        output[ix] = coverage
+        if coverage:
+            output[ix] = coverage
     return output
 
 class TopologyError(object):

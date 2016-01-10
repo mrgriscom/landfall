@@ -35,7 +35,7 @@ class LandfallHandler(web.RequestHandler):
         _origin = self.get_argument('origin')
         size = int(self.get_argument('size'))
         _range = self.get_argument('range', '0,360')
-        mindist = float(self.get_argument('mindist', '10000'))
+        mindist = float(self.get_argument('mindist', '100'))
 
         origin = map(float, _origin.split(',')[:2])
         range = map(float, _range.split(',')[:2])
