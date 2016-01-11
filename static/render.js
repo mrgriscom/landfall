@@ -84,18 +84,22 @@ function render(data, width, height) {
     var colors = assign_colors(NUM_COLORS, admins, adj);
     console.log(colors);
 
+    var disty = function(dist) {
+        var logdist = Math.log(dist);
+        var k = Math.max((logdist - logmin) / (logmax - logmin), 0);
+        var y = height * k;
+        return {k: k, y: y};
+    }
+
     // land
     for (var i = 0; i < data.postings.length; i++) {
         var dist = data.postings[i][0];
         var admin = admin_by_px[i];
         if (dist >= 0) {
-            var logdist = Math.log(dist);
-            var k = Math.max((logdist - logmin) / (logmax - logmin), 0);
-            var y = height * k;
-
-            var C = COLORS[colors[admin]][Math.floor(k * (STEPS - 1))];
+            var _d = disty(dist);
+            var C = COLORS[colors[admin]][Math.floor(_d.k * (STEPS - 1))];
             ctx.fillStyle = C;
-            ctx.fillRect(i, y, 1, height - y);
+            ctx.fillRect(i, _d.y, 1, height - _d.y);
         }
     }
 
@@ -143,6 +147,22 @@ function render(data, width, height) {
 
     var fin = mk_canvas(width, height);
     $('body').append(fin.canvas);
+
+    var x0 = 0;
+    var drawRules = function(first_pass) {
+        $.each([1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 20015.115], function(i, e) {
+            var label = (e >= 20000 ? 'antipode' : e + ' km');
+            var y = disty(1000*e).y;
+
+            fin.context.fillStyle = 'rgba(0, 0, 0, ' + (first_pass ? .2 : .02) + ')';
+            fin.context.fillRect(0, y, width, 1);
+            fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
+            fin.context.font = '8pt sans-serif';
+            fin.context.fillText(label, x0 + 2, y - 2);
+        });
+    }
+    drawRules(true);
+
     var compose = function(canv) {
         fin.context.drawImage(canv.canvas, 0, 0, width, height);
     };
@@ -151,6 +171,25 @@ function render(data, width, height) {
     var edges = downsize(c2);
     for (var i = 0; i < 2; i++) {
         compose(edges);
+    }
+
+    drawRules(false);
+
+    fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
+    fin.context.textAlign = 'center';
+    fin.context.testBaseline = 'bottom';
+    for (var bearing = 0; bearing <= 360; bearing += 15) {
+        var nbear = bearing % 360;
+        var x = (bearing - data.range[0]) * width / (data.range[1] - data.range[0]);
+        var major = (bearing % 45 == 0);
+        if (major) {
+            var label = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][nbear / 45];
+            fin.context.font = 'bold 18pt sans-serif';
+        } else {
+            var label = nbear + '\xb0';
+            fin.context.font = 'bold 12pt sans-serif';
+        }
+        fin.context.fillText(label, x, height - 5);
     }
 
     return fin.canvas;
