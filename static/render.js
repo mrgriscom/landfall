@@ -12,18 +12,26 @@ NUM_COLORS = 6;
 STEPS = 1000;
 
 function loadColors(after) {
+    HUES = [];
+    for (var i = 0; i < NUM_COLORS; i++) {
+        HUES.push(360. * i / NUM_COLORS);
+    }
+
     WS = new WebSocket('ws://' + location.host + '/colors')
     WS.onmessage = function(e) {
-        COLORS = JSON.parse(e.data);
+        var data = JSON.parse(e.data);
+        COLORS = [];
+        _.each(HUES, function(hue, i) {
+            COLORS.push(data[hue]);
+        });
         COLORS = _.shuffle(COLORS); // randomize the hue order
         after();
     };
     setTimeout(function() {
         WS.send(JSON.stringify({
-            num_colors: NUM_COLORS,
-            lum: .6,
-            sat: [.03, .38],
-            steps: STEPS,
+            hues: HUES,
+            lum: [.5, .7],
+            sat: [.6, .03],
         }));
     }, 500);
 }
@@ -33,19 +41,14 @@ function render(data, width, height) {
     var ctx = c.context;
     //$('body').append(c.canvas);
 
-    var logmin = Math.log(data.min_dist);
+    var logmin = Math.log(Math.max(10000, data.min_dist));
     var logmax = Math.log(2*Math.PI * 6371009.);
-
-    var SATMIN = .1;
-    var SATMAX = .8;
-
     console.log(logmin, logmax);
 
     var admin_by_px = [];
     for (var i = 0; i < data.postings.length; i++) {
         var _admins = data.postings[i][1];
         var admin = (_admins.length > 0 ? _.sortBy(_admins, function(e) { return -e.length; })[0] : 'X0');
-        //var admin = (_admins.length > 0 ? _admins[Math.floor(Math.random() * _admins.length)] : -1);
         admin_by_px.push(admin);
     }
 
@@ -81,6 +84,7 @@ function render(data, width, height) {
     var colors = assign_colors(NUM_COLORS, admins, adj);
     console.log(colors);
 
+    // land
     for (var i = 0; i < data.postings.length; i++) {
         var dist = data.postings[i][0];
         var admin = admin_by_px[i];
@@ -99,6 +103,7 @@ function render(data, width, height) {
     var ctx2 = c2.context;
     //$('body').append(c2.canvas);
 
+    // creases
     for (var i = 0; i < data.postings.length; i++) {
         var dist0 = data.postings[i][0];        
         var dist1 = data.postings[(i + 1) % data.postings.length][0];

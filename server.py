@@ -118,6 +118,36 @@ class KmlHandler(web.RequestHandler):
         self.set_header('Content-Disposition', 'attachment; filename="landfall.kml"')
         self.render('render.kml', segments=segments)
 
+COLOR_CACHE = {}
+
+def color_ramp(hue, lummin, lummax, satmin, satmax, num_steps=1000):
+    hue /= 360.
+
+    def get_color(hue, lum, sat):
+        rgb = m.munsell(hue, lum, sat)
+        if not m.in_gamut(rgb):
+            # binary search to find most saturated in-gamut color for hue/lum
+            sat_quantum = .001
+            sat_lo = 0.
+            sat_hi = sat
+            while sat_hi - sat_lo > sat_quantum:
+                sat = .5 * (sat_lo + sat_hi)
+                cand = m.munsell(hue, lum, sat)
+                if m.in_gamut(cand):
+                    rgb = cand
+                    sat_lo = sat
+                else:
+                    sat_hi = sat
+        return '#%s' % ''.join('%02x' % k for k in m.rgb_to_hex(rgb))
+
+    def color_for_k(k):
+        lum = lummin * (1-k) + lummax * k
+        sat = satmin * (1-k) + satmax * k
+        return get_color(hue, lum, sat)
+
+    steps = [float(i) / (num_steps - 1) for i in xrange(num_steps)]
+    return map(color_for_k, steps)
+
 class ColorProviderHandler(websocket.WebSocketHandler):
     def open(self):
         pass
@@ -128,22 +158,19 @@ class ColorProviderHandler(websocket.WebSocketHandler):
     def on_message(self, message):
         data = json.loads(message)
 
-        num_colors = data['num_colors']
-        LUM = data['lum']
-        SATFAR, SATCLOSE = data['sat']
-        STEPS = data['steps']
+        hues = data['hues']
+        lummin, lummax = data['lum']
+        satmin, satmax = data['sat']
 
-        def color(h, v, c):
-            rgb = m.munsell(h, v, c)
-            if not m.in_gamut(rgb):
-                return None
-            return '#%s' % ''.join('%02x' % k for k in m.rgb_to_hex(rgb))
+        def get_ramp(hue):
+            key = (hue, lummin, lummax, satmin, satmax)
+            if key not in COLOR_CACHE:
+                print 'generating color ramp: hue %s lum %s %s sat %s %s' % key
+                COLOR_CACHE[key] = color_ramp(*key)
+            return COLOR_CACHE[key]
 
-        hues = [float(i)/num_colors for i in range(num_colors)]
-        steps = [float(i)/(STEPS-1) for i in range(STEPS)]
-        table = [[color(hue, LUM, SATCLOSE*(1-k)+SATFAR*k) for k in steps] for hue in hues]
-
-        self.write_message(json.dumps(table))
+        colors = dict((hue, get_ramp(hue)) for hue in hues)
+        self.write_message(json.dumps(colors))
 
     def on_close(self):
         pass
