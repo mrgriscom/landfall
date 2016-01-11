@@ -316,7 +316,9 @@ def verify(output, admin_info, verbose=False):
                             break
 
                 if valid_dispute:
-                    areas = set([valid_dispute])
+                    # need to modify original 'areas' in the coverage dict, so can't set to new set
+                    areas -= areas
+                    areas.add(valid_dispute)
                 else:
                     issues.add(DisputedLand(areas))
                     problem_lines.add(line)
