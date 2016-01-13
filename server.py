@@ -55,7 +55,7 @@ class LandfallHandler(web.RequestHandler):
         print origin, size, range, lonspan, res, mindist
 
         print 'generating...'
-        postings = lf.postings(origin, load_index(), res, range[0], range[1], mindist)
+        postings = lf.project_landfall(origin, load_index(), res, range[0], range[1], mindist)
 
         print 'saving...'
         output = {

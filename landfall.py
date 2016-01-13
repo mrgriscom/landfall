@@ -6,16 +6,17 @@ import Queue
 import itertools
 
 EARTH_CIRCUMF = 2*math.pi*geodesy.EARTH_MEAN_RAD
+# farthest possible distance before you start getting closer again
 EARTH_FARTHEST = .5 * EARTH_CIRCUMF
 
 COAST_IS_CLOCKWISE = True
 
 def swap(p):
+    # convert (x, y) to (y, x) and vice versa
     return (p[1], p[0])
-def antipode(p):
-    return (-p[0], p[1]+180.)
 
-def distbear_init(p0):
+def dist_bear_factory(p0):
+    # factory to return a function for efficiently computing distance/bearing from base point p0
     v0 = geodesy.ll_to_ecefu(p0)
     vnorth, veast = geodesy.orientate(v0)
 
@@ -36,6 +37,7 @@ def distbear_init(p0):
     return distbear
 
 def dist_is_axial(dist, cutoff=.1):
+    # return whether distance corresponds to a point very close to origin or antipode
     dist = dist % EARTH_FARTHEST
     return (dist < cutoff or dist > EARTH_FARTHEST - cutoff)
 
@@ -45,22 +47,27 @@ class DepthBuffer(object):
         self.lonspan = (bearing1 - bearing0) % 360. or 360.
         self.size = int(round(self.lonspan / res))
         self.res = self.lonspan / self.size
+
         self.dist = [-1] * self.size
         self.areas = [set()] * self.size
         self.min_dist = [min_dist] * self.size
-        self.max_min_dist = max(self.min_dist)
         self.crossings = [0] * self.size
-        self.distbear = distbear_init(p0)
+
+        self.distbear = dist_bear_factory(p0)
+        self.max_min_dist = max(self.min_dist)
         self.crossings_filled = False
 
     def output(self):
-        self.fill_threshold_crossings()
+        self.fill_between_crossings()
         return zip(self.dist, self.areas)
 
     def to_fpx(self, bearing):
+        # transform a bearing to real-valued pixel space of the viewport [0, max_px())
         return ((bearing - self.bearing0) % 360.) / self.res
 
     def to_px(self, bearing):
+        # convert bearing to an actual integer pixel. note that out of range bearings
+        # will always have pixels greater than the buffer size (never negative)
         px = int(self.to_fpx(bearing))
         assert px >= 0
         return px
@@ -71,7 +78,7 @@ class DepthBuffer(object):
         # viewport if the range is full 360.
         return self.to_px(self.bearing0 - geodesy.EPSILON)
 
-    def set_dist(self, px, dist, areas):
+    def update_dist(self, px, dist, areas):
         if dist < 0:
             dist = self.min_dist[px]
         self.dist[px] = dist
@@ -79,15 +86,16 @@ class DepthBuffer(object):
 
     def post(self, dist, bearing, areas):
         px = self.to_px(bearing)
-        if (px < self.size and dist >= self.min_dist[px] and 
-            self.dist_threshold(px, dist)):
-            self.set_dist(px, dist, areas)
+        if (px < self.size and dist >= self.min_dist[px] and self.dist_is_visible(px, dist)):
+            self.update_dist(px, dist, areas)
         return px
 
-    def dist_threshold(self, px, dist):
+    def dist_is_visible(self, px, dist):
+        # whether the dist will update the depth buffer at pixel px
         return self.dist[px] < 0 or dist < self.dist[px]
 
     def range_test(self, bearing0, bearing1, func):
+        # perform some condition test over an interval of bearings
         fpx0 = self.to_fpx(bearing0)
         fpx1 = self.to_fpx(bearing1)
         px0 = self.to_px(bearing0)
@@ -115,13 +123,19 @@ class DepthBuffer(object):
 
         return any(func(px % self.size) for px in xrange(px0, px1 + 1))
 
-    def dist_test(self, min_dist, bearing0, bearing1):
-        return self.range_test(bearing0, bearing1, lambda px: self.dist_threshold(px, min_dist))
+    def range_is_obscured(self, min_dist, bearing0, bearing1):
+        return not self.range_test(bearing0, bearing1, lambda px: self.dist_is_visible(px, min_dist))
 
-    def threshold_relevancy_test(self, mindist, maxdist, bearing0, bearing1):
+    def range_crosses_threshold(self, mindist, maxdist, bearing0, bearing1):
+        if mindist > self.max_min_dist:
+            # for efficiency
+            return False
         return self.range_test(bearing0, bearing1, lambda px: mindist <= self.min_dist[px] <= maxdist)
 
-    def within_threshold_test(self, maxdist, bearing0, bearing1):
+    def range_inside_threshold(self, maxdist, bearing0, bearing1):
+        if maxdist >= self.max_min_dist:
+            # for efficiency
+            return False
         return not self.range_test(bearing0, bearing1, lambda px: maxdist > self.min_dist[px])
     
     def project_segment(self, p, antip, prev, areas):
@@ -142,6 +156,7 @@ class DepthBuffer(object):
         return dist, bear, px
 
     def fill(self, p, antip, areas, dist, bear, px, prev):
+        # fill in intermediate points on the segment until we have a contiguous range of pixels
         # TODO: could bail early if entire segment is out of bearing viewport
         prev_p, prev_dist, prev_bear, prev_px = prev
         adjacent = (abs(px - prev_px) <= 1 or
@@ -182,11 +197,10 @@ class DepthBuffer(object):
 
         rel_a = rel(prev_dist, prev_px)
         rel_b = rel(dist, px)
+        i_close, i_far = 0, 1
         if rel_a > rel_b:
             rel_a, rel_b = rel_b, rel_a
-            i_close, i_far = 1, 0
-        else:
-            i_close, i_far = 0, 1
+            i_close, i_far = i_far, i_close
 
         if (rel_a, rel_b) in ((-1, -1), (1, 1), (0, 1)):
             return
@@ -201,11 +215,15 @@ class DepthBuffer(object):
             assert False, "can't happen"
 
     def add_crossing(self, px, is_entry, areas):
-        self.set_dist(px, -1, areas)
+        # need to post the crossing point here because:
+        # - if no net crossing at this px then will be ignored during fill and dist will never get set to min
+        # - need to register the areas for the fill phase to use
+        self.update_dist(px, -1, areas)
+
         # 1 means start fill; -1 means end fill
         self.crossings[px] += (1 if is_entry else -1) * (-1 if COAST_IS_CLOCKWISE else 1)
 
-    def fill_threshold_crossings(self):
+    def fill_between_crossings(self):
         if self.crossings_filled:
             return
 
@@ -241,15 +259,27 @@ class DepthBuffer(object):
                     areas_ix = start
                 else:
                     areas_ix = start if i < mid else end
-                self.set_dist(i, -1, self.areas[areas_ix])
+                self.update_dist(i, -1, self.areas[areas_ix])
 
         self.crossings_filled = True
 
-class SegmentSequencer(object):
-    def __init__(self, data, p0, db):
+    def filter_segment(self, mindist, maxdist, minbear, maxbear):
+        # perform bookkeeping on a new segment and return whether the segment should be projected
+        if mindist > self.max_min_dist:
+            self.fill_between_crossings()
+
+        if self.range_inside_threshold(maxdist, minbear, maxbear):
+            return False
+        if self.range_crosses_threshold(mindist, maxdist, minbear, maxbear):
+            # include all segments that straddle the threshold, to ensure all crossings are registered
+            return True
+        return not self.range_is_obscured(mindist, minbear, maxbear)
+
+class SegmentIterator(object):
+    def __init__(self, data, p0, depth_buffer):
         self.data = data
         self.p0 = p0
-        self.db = db
+        self.db = depth_buffer
         self.q = Queue.PriorityQueue()
         self.all_ixs = set(itertools.chain(*map(pd.ix_ancestor, data.keys())))
         for ix in ('0', '1'):
@@ -266,18 +296,12 @@ class SegmentSequencer(object):
                       geodesy.anglenorm(bounds[3]+180.))
         self.q.put((bounds[0], ix, antip, bounds))
 
-    def process_next(self):
+    def next_segment(self):
         _, ix, antip, bounds = self.q.get(False) # empty caught in caller
         mindist, maxdist, minbear, maxbear = bounds
 
-        if mindist > self.db.max_min_dist:
-            self.db.fill_threshold_crossings()
-        if maxdist < self.db.max_min_dist and self.db.within_threshold_test(maxdist, minbear, maxbear):
-            return
-
-        if (not self.db.dist_test(mindist, minbear, maxbear) and
-            # include all segments that straddle the threshold, to ensure all crossings are registered
-            not self.db.threshold_relevancy_test(mindist, maxdist, minbear, maxbear)):
+        process = self.db.filter_segment(mindist, maxdist, minbear, maxbear)
+        if not process:
             return
 
         print ('%s%s' % (ix, '-' if antip else '+')).ljust(15), mindist
@@ -292,15 +316,15 @@ class SegmentSequencer(object):
     def __iter__(self):
         while True:
             try:
-                next = self.process_next()
+                next = self.next_segment()
             except Queue.Empty:
                 break
             if next is not None:
                 yield next
 
-def postings(p0, data, bearing_res, bearing0, bearing1, near_dist):
+def project_landfall(p0, data, bearing_res, bearing0, bearing1, near_dist):
     db = DepthBuffer(p0, bearing0, bearing1, bearing_res, near_dist)
-    for ix, antip in SegmentSequencer(data, p0, db):
+    for ix, antip in SegmentIterator(data, p0, db):
         segment = data[ix]
         for line, areas in segment.iteritems():
             coords = line.coords
