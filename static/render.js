@@ -177,7 +177,6 @@ function render(data, width, height) {
 
     fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
     fin.context.textAlign = 'center';
-    fin.context.testBaseline = 'bottom';
     var bearing_tick = 15;
     var bearing_label_min = bearing_tick * (Math.floor(data.range[0] / bearing_tick) - 1);
     var bearing_label_max = bearing_tick * (Math.ceil(data.range[1] / bearing_tick) + 1);
@@ -213,6 +212,13 @@ function render(data, width, height) {
         }
         fin.context.fillText(label, x, height - 5);
     }
+
+    fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
+    fin.context.textAlign = 'left';
+    fin.context.font = '10pt sans-serif';
+    fin.context.rotate(-.5*Math.PI);
+    fin.context.fillText('data \xa9 OpenStreetMap contributors', -height + 35, width - 5);
+    fin.context.rotate(.5*Math.PI);
 
     return fin.canvas;
 }

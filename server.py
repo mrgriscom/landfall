@@ -186,7 +186,7 @@ if __name__ == "__main__":
         port = 8000
 
     application = web.Application([
-        (r'/list', OutputListHandler),
+        (r'/', OutputListHandler),
         (r'/render/(?P<tag>.*)', RenderHandler, {}, 'render'),
         (r'/kml/(?P<tag>.*)', KmlHandler, {}, 'kml'),
         (r'/landfall', LandfallHandler),

@@ -48,8 +48,10 @@ class DepthBuffer(object):
         self.dist = [-1] * self.size
         self.areas = [set()] * self.size
         self.min_dist = [min_dist] * self.size
+        self.max_min_dist = max(self.min_dist)
         self.crossings = [0] * self.size
         self.distbear = distbear_init(p0)
+        self.crossings_filled = False
 
     def output(self):
         self.fill_threshold_crossings()
@@ -85,7 +87,7 @@ class DepthBuffer(object):
     def dist_threshold(self, px, dist):
         return self.dist[px] < 0 or dist < self.dist[px]
 
-    def dist_test(self, min_dist, bearing0, bearing1):
+    def range_test(self, bearing0, bearing1, func):
         fpx0 = self.to_fpx(bearing0)
         fpx1 = self.to_fpx(bearing1)
         px0 = self.to_px(bearing0)
@@ -111,8 +113,17 @@ class DepthBuffer(object):
             # wraparound -> overlap-left+right
             px1 = self.size + px1
 
-        return any(self.dist_threshold(px % self.size, min_dist) for px in xrange(px0, px1 + 1))
+        return any(func(px % self.size) for px in xrange(px0, px1 + 1))
 
+    def dist_test(self, min_dist, bearing0, bearing1):
+        return self.range_test(bearing0, bearing1, lambda px: self.dist_threshold(px, min_dist))
+
+    def threshold_relevancy_test(self, mindist, maxdist, bearing0, bearing1):
+        return self.range_test(bearing0, bearing1, lambda px: mindist <= self.min_dist[px] <= maxdist)
+
+    def within_threshold_test(self, maxdist, bearing0, bearing1):
+        return not self.range_test(bearing0, bearing1, lambda px: maxdist > self.min_dist[px])
+    
     def project_segment(self, p, antip, prev, areas):
         dist, bear, px = self.project_point(p, antip, areas)
         if prev is not None:
@@ -195,6 +206,9 @@ class DepthBuffer(object):
         self.crossings[px] += (1 if is_entry else -1) * (-1 if COAST_IS_CLOCKWISE else 1)
 
     def fill_threshold_crossings(self):
+        if self.crossings_filled:
+            return
+
         segments = []
         try:
             for i, xing in enumerate(self.crossings):
@@ -229,6 +243,8 @@ class DepthBuffer(object):
                     areas_ix = start if i < mid else end
                 self.set_dist(i, -1, self.areas[areas_ix])
 
+        self.crossings_filled = True
+
 class SegmentSequencer(object):
     def __init__(self, data, p0, db):
         self.data = data
@@ -252,9 +268,18 @@ class SegmentSequencer(object):
 
     def process_next(self):
         _, ix, antip, bounds = self.q.get(False) # empty caught in caller
-        mindist, _, minbear, maxbear = bounds
-        if not self.db.dist_test(mindist, minbear, maxbear):
+        mindist, maxdist, minbear, maxbear = bounds
+
+        if mindist > self.db.max_min_dist:
+            self.db.fill_threshold_crossings()
+        if maxdist < self.db.max_min_dist and self.db.within_threshold_test(maxdist, minbear, maxbear):
             return
+
+        if (not self.db.dist_test(mindist, minbear, maxbear) and
+            # include all segments that straddle the threshold, to ensure all crossings are registered
+            not self.db.threshold_relevancy_test(mindist, maxdist, minbear, maxbear)):
+            return
+
         print ('%s%s' % (ix, '-' if antip else '+')).ljust(15), mindist
         if ix in self.data:
             return (ix, antip)
