@@ -66,7 +66,7 @@ class LandfallHandler(web.RequestHandler):
             'min_dist': mindist,
             'postings': postings,
         }
-        tag = '%s.json' % datetime.now().strftime('%Y%m%d%H%M%S')
+        tag = '%s.json' % datetime.now().strftime('%Y%m%d-%H%M%S')
         with open(os.path.join(config.OUTPUT_PATH, tag), 'w') as f:
             json.dump(output, f, indent=2)
         self.redirect(self.reverse_url('render', tag))
@@ -103,6 +103,8 @@ class RenderHandler(web.RequestHandler):
         info[pd.CC_UNCLAIMED] = {'name': 'terra nullius', 'parent': None}
 
         entities = set((posting[1] or pd.CC_UNCLAIMED) for posting in data['postings'])
+        parents = set(filter(None, (info[e]['parent'] for e in entities)))
+        entities.update(parents)
         return dict((k, v) for k, v in info.iteritems() if k in entities)
 
 class KmlHandler(web.RequestHandler):
