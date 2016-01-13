@@ -154,7 +154,7 @@ function render(data, width, height) {
             var label = (e >= 20000 ? 'antipode' : e + ' km');
             var y = disty(1000*e).y;
 
-            fin.context.fillStyle = 'rgba(0, 0, 0, ' + (first_pass ? .2 : .02) + ')';
+            fin.context.fillStyle = 'rgba(0, 0, 0, ' + (first_pass ? .2 : .04) + ')';
             fin.context.fillRect(0, y, width, 1);
             fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
             fin.context.font = '8pt sans-serif';
@@ -178,15 +178,37 @@ function render(data, width, height) {
     fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
     fin.context.textAlign = 'center';
     fin.context.testBaseline = 'bottom';
-    for (var bearing = 0; bearing <= 360; bearing += 15) {
-        var nbear = bearing % 360;
+    var bearing_tick = 15;
+    var bearing_label_min = bearing_tick * (Math.floor(data.range[0] / bearing_tick) - 1);
+    var bearing_label_max = bearing_tick * (Math.ceil(data.range[1] / bearing_tick) + 1);
+    var is_polar = Math.abs(data.origin[0]) > 90. - 1e-6;
+    for (var bearing = bearing_label_min; bearing <= bearing_label_max; bearing += bearing_tick) {
+        var nbear = fixmod(bearing, 360);
         var x = (bearing - data.range[0]) * width / (data.range[1] - data.range[0]);
         var major = (bearing % 45 == 0);
+
+        if (!is_polar) {
+            if (major) {
+                var label = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][nbear / 45];
+            } else {
+                var label = nbear + '\xb0';
+            }
+        } else {
+            var lon = (data.origin[0] > 0 ? fixmod(-nbear, 360) : nbear);
+            if (lon == 0 || lon == 180) {
+                var dir = '';
+            } else if (lon < 180) {
+                var dir = 'E';
+            } else {
+                var dir = 'W';
+                lon = 360. - lon;
+            }
+            var label = lon + '\xb0' + dir;
+        }
+
         if (major) {
-            var label = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][nbear / 45];
             fin.context.font = 'bold 18pt sans-serif';
         } else {
-            var label = nbear + '\xb0';
             fin.context.font = 'bold 12pt sans-serif';
         }
         fin.context.fillText(label, x, height - 5);
@@ -241,7 +263,6 @@ function setupMap(data, canv) {
 
             var xn = MIN[x][0] / $canv.width();
             var dist = MIN[x][1];
-            var fixmod = function(a, b) { return ((a % b) + b) % b; }
             var bearing = data.range[0] + (fixmod(data.range[1] - data.range[0], 360.) || 360.) * xn;
 
             var target = line_plotter(data.origin, bearing)(dist);
@@ -467,3 +488,7 @@ function colorizing(a){
   }
   return color
 };
+
+function fixmod(a, b) {
+    return ((a % b) + b) % b;
+}

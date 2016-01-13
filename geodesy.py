@@ -76,11 +76,14 @@ def ll_to_ecefu((lat, lon)):
 
 #convert a point on the unit sphere to (lat, lon)
 def ecefu_to_ll((x, y, z)):
-    rlat = math.asin(clamp(z, -1., 1.))
     if (abs(x) < EPSILON and abs(y) < EPSILON):
         rlon = 0.
     else:
         rlon = math.atan2(y, x)
+    if abs(z) < 1. - EPSILON:
+        rlat = math.asin(z)
+    else:
+        rlat = math.atan2(z, (x**2. + y**2.)**.5)
     return (math.degrees(rlat), math.degrees(rlon))
 
 #return 'north' and 'east' vectors for a given position vector

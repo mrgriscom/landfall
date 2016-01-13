@@ -63,6 +63,12 @@ class DepthBuffer(object):
         assert px >= 0
         return px
 
+    def max_px(self):
+        # this is not the size of the viewport, but rather the largest
+        # 'virtual' pixel before wraparound. which is the end of the
+        # viewport if the range is full 360.
+        return self.to_px(self.bearing0 - geodesy.EPSILON)
+
     def set_dist(self, px, dist, areas):
         if dist < 0:
             dist = self.min_dist[px]
@@ -125,12 +131,10 @@ class DepthBuffer(object):
         return dist, bear, px
 
     def fill(self, p, antip, areas, dist, bear, px, prev):
-        # TODO: px's may be out of range
-        # bail if so (both must of out of range?)
-
+        # TODO: could bail early if entire segment is out of bearing viewport
         prev_p, prev_dist, prev_bear, prev_px = prev
         adjacent = (abs(px - prev_px) <= 1 or
-                    (min(px, prev_px) == 0 and max(px, prev_px) == self.size - 1 and self.lonspan == 360.))
+                    (min(px, prev_px) == 0 and max(px, prev_px) == self.max_px()))
         if adjacent:
             self.check_crossings(dist, px, prev_dist, prev_px, areas)
             return
@@ -150,6 +154,12 @@ class DepthBuffer(object):
         self.fill(midp, antip, areas, middist, midbear, midpx, prev)
 
     def check_crossings(self, dist, px, prev_dist, prev_px, areas):
+        if px >= self.size or prev_px >= self.size:
+            # although the crossing logic applies to out-of-view bearings,
+            # we don't store a distance threshold, and there is no relevant
+            # crossing that could happen at the edge anyway
+            return
+
         def rel(x, px):
             thresh = self.min_dist[px]
             if x > thresh:
