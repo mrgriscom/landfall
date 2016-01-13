@@ -16,8 +16,9 @@ import config
 import geodesy
 import pickle
 import landfall as lf
-import time
+from datetime import datetime
 import itertools
+import process_data as pd
 
 from munsell import munsell as m
 m.init()
@@ -63,9 +64,9 @@ class LandfallHandler(web.RequestHandler):
             'res': res,
             'range': range,
             'min_dist': mindist,
-            'postings': [[dist, list(areas)] for dist, areas in postings],
+            'postings': postings,
         }
-        tag = '%d.json' % time.time()
+        tag = '%s.json' % datetime.now().strftime('%Y%m%d%H%M%S')
         with open(os.path.join(config.OUTPUT_PATH, tag), 'w') as f:
             json.dump(output, f, indent=2)
         self.redirect(self.reverse_url('render', tag))
@@ -87,7 +88,22 @@ class RenderHandler(web.RequestHandler):
     def get(self, tag):
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
-        self.render('render.html', data=data)
+        self.render('render.html', data=data, info=self.get_admin_info(data))
+
+    def get_admin_info(self, data):
+        info = {}
+        admin_info = pd.load_admin_info(pd.admin_info_path)
+        for k, v in admin_info.iteritems():
+            info[k] = {
+                'name': v['name'] + (' (%s)' % v['parent'] if v['parent'] else ''),
+                'parent': v['parent'] if v['type'] == 'subdivision' else None,
+            }
+        for k, v in config.disputed_areas.iteritems():
+            info['%s-%s' % (pd.CC_DISPUTED, k)] = {'name': v['name'], 'parent': None}
+        info[pd.CC_UNCLAIMED] = {'name': 'terra nullius', 'parent': None}
+
+        entities = set((posting[1] or pd.CC_UNCLAIMED) for posting in data['postings'])
+        return dict((k, v) for k, v in info.iteritems() if k in entities)
 
 class KmlHandler(web.RequestHandler):
     def get(self, tag):

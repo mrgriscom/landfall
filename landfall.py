@@ -4,6 +4,7 @@ from shapely.geometry import LineString, LinearRing
 import process_data as pd
 import Queue
 import itertools
+import random
 
 EARTH_CIRCUMF = 2*math.pi*geodesy.EARTH_MEAN_RAD
 # farthest possible distance before you start getting closer again
@@ -49,7 +50,7 @@ class DepthBuffer(object):
         self.res = self.lonspan / self.size
 
         self.dist = [-1] * self.size
-        self.areas = [set()] * self.size
+        self.areas = [set() for i in xrange(self.size)]
         self.min_dist = [min_dist] * self.size
         self.crossings = [0] * self.size
 
@@ -59,6 +60,20 @@ class DepthBuffer(object):
 
     def output(self):
         self.fill_between_crossings()
+
+        multi_areas = set()
+        def condense_areas(areas):
+            # can't modify 'areas', as the same set obj may be re-used within self.areas
+            if len(areas) > 1:
+                multi_areas.add(tuple(sorted(areas)))
+                return random.choice(list(areas))
+            return iter(areas).next() if areas else None
+        self.areas = map(condense_areas, self.areas)
+
+        if multi_areas:
+            print 'found the following multi-areas:'
+            print '\n'.join(sorted(','.join(ma) for ma in multi_areas))
+
         return zip(self.dist, self.areas)
 
     def to_fpx(self, bearing):

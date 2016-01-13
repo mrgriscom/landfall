@@ -47,8 +47,7 @@ function render(data, width, height) {
 
     var admin_by_px = [];
     for (var i = 0; i < data.postings.length; i++) {
-        var _admins = data.postings[i][1];
-        var admin = (_admins.length > 0 ? _.sortBy(_admins, function(e) { return -e.length; })[0] : 'X0');
+        var admin = data.postings[i][1] || 'X0';
         admin_by_px.push(admin);
     }
 

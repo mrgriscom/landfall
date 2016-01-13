@@ -381,21 +381,22 @@ def shp_to_csv(shppath, csvpath):
     os.popen('ogr2ogr -f csv -lco GEOMETRY=AS_WKT -progress %s %s' % (tmp, shppath))
     os.popen('mv "%s" "%s"' % (find_with_ext(tmp, 'csv'), csvpath))
 
+data_dir = os.path.join(os.path.dirname(__file__), 'data')
+tmp_dir = os.path.join(data_dir, 'tmp')
+
+admin_info_path = os.path.join(data_dir, 'admin_index.csv')
+admin_dir = os.path.join(data_dir, 'admin_areas')
+noland_dir = os.path.join(data_dir, 'no_land')
+
+coast_dir = os.path.join(tmp_dir, 'land-polygons-complete-4326')
+coast_csv = os.path.join(tmp_dir, 'coast.csv')
+noland_csv = os.path.join(tmp_dir, 'noland.csv')
+admin_csv = os.path.join(tmp_dir, 'admin.csv')
+admin_ix_path = os.path.join(tmp_dir, 'admin_ix')
+coast_ix_path = os.path.join(tmp_dir, 'coast_ix')
+final_output_path = os.path.join(tmp_dir, 'tagged_coastline')
+
 def process(options):
-    data_dir = os.path.join(os.path.dirname(__file__), 'data')
-    tmp_dir = os.path.join(data_dir, 'tmp')
-
-    admin_info_path = os.path.join(data_dir, 'admin_index.csv')
-    admin_dir = os.path.join(data_dir, 'admin_areas')
-    noland_dir = os.path.join(data_dir, 'no_land')
-
-    coast_dir = os.path.join(tmp_dir, 'land-polygons-complete-4326')
-    coast_csv = os.path.join(tmp_dir, 'coast.csv')
-    noland_csv = os.path.join(tmp_dir, 'noland.csv')
-    admin_csv = os.path.join(tmp_dir, 'admin.csv')
-    admin_ix_path = os.path.join(tmp_dir, 'admin_ix')
-    coast_ix_path = os.path.join(tmp_dir, 'coast_ix')
-    final_output_path = os.path.join(tmp_dir, 'tagged_coastline')
 
     if not os.path.exists(tmp_dir):
         os.mkdir(tmp_dir)
