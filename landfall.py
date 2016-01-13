@@ -8,6 +8,8 @@ import itertools
 EARTH_CIRCUMF = 2*math.pi*geodesy.EARTH_MEAN_RAD
 EARTH_FARTHEST = .5 * EARTH_CIRCUMF
 
+COAST_IS_CLOCKWISE = True
+
 def swap(p):
     return (p[1], p[0])
 def antipode(p):
@@ -46,9 +48,11 @@ class DepthBuffer(object):
         self.dist = [-1] * self.size
         self.areas = [set()] * self.size
         self.min_dist = [min_dist] * self.size
+        self.crossings = [0] * self.size
         self.distbear = distbear_init(p0)
 
     def output(self):
+        self.fill_threshold_crossings()
         return zip(self.dist, self.areas)
 
     def to_fpx(self, bearing):
@@ -59,12 +63,17 @@ class DepthBuffer(object):
         assert px >= 0
         return px
 
+    def set_dist(self, px, dist, areas):
+        if dist < 0:
+            dist = self.min_dist[px]
+        self.dist[px] = dist
+        self.areas[px] = areas
+
     def post(self, dist, bearing, areas):
         px = self.to_px(bearing)
         if (px < self.size and dist >= self.min_dist[px] and 
             self.dist_threshold(px, dist)):
-            self.dist[px] = dist
-            self.areas[px] = areas
+            self.set_dist(px, dist, areas)
         return px
 
     def dist_threshold(self, px, dist):
@@ -116,13 +125,19 @@ class DepthBuffer(object):
         return dist, bear, px
 
     def fill(self, p, antip, areas, dist, bear, px, prev):
+        # TODO: px's may be out of range
+        # bail if so (both must of out of range?)
+
         prev_p, prev_dist, prev_bear, prev_px = prev
         adjacent = (abs(px - prev_px) <= 1 or
                     (min(px, prev_px) == 0 and max(px, prev_px) == self.size - 1 and self.lonspan == 360.))
         if adjacent:
+            self.check_crossings(dist, px, prev_dist, prev_px, areas)
             return
         if dist_is_axial(dist):
             # segment crosses origin or antipode and will never converge
+            # don't bother with crossings as this scenario is rare; we mainly
+            # just care about preventing infinite loop
             return
 
         xyz0 = geodesy.ll_to_ecefu(p)
@@ -130,8 +145,79 @@ class DepthBuffer(object):
         midp = geodesy.ecefu_to_ll(geodesy.vnorm(geodesy.vscale(geodesy.vadd(xyz0, xyz1), .5)))
 
         middist, midbear, midpx = self.project_point(midp, antip, areas)
-        self.fill(midp, antip, areas, middist, midbear, midpx, (p, dist, bear, px))
+        # the ordering of p, mid, and prev is important to maintain direction of coastline
+        self.fill(p, antip, areas, dist, bear, px, (midp, middist, midbear, midpx))
         self.fill(midp, antip, areas, middist, midbear, midpx, prev)
+
+    def check_crossings(self, dist, px, prev_dist, prev_px, areas):
+        def rel(x, px):
+            thresh = self.min_dist[px]
+            if x > thresh:
+                return 1
+            elif x < thresh:
+                return -1
+            else:
+                return 0
+
+        rel_a = rel(prev_dist, prev_px)
+        rel_b = rel(dist, px)
+        if rel_a > rel_b:
+            rel_a, rel_b = rel_b, rel_a
+            i_close, i_far = 1, 0
+        else:
+            i_close, i_far = 0, 1
+
+        if (rel_a, rel_b) in ((-1, -1), (1, 1), (0, 1)):
+            return
+        elif (rel_a, rel_b) == (-1, 1):
+            self.add_crossing([prev_px, px][i_close], i_close > i_far, areas)
+        elif (rel_a, rel_b) == (-1, 0):
+            self.add_crossing([prev_px, px][i_far], i_close > i_far, areas)
+        elif (rel_a, rel_b) == (0, 0):
+            self.add_crossing(prev_px, True, areas)
+            self.add_crossing(px, False, areas)
+        else:
+            assert False, "can't happen"
+
+    def add_crossing(self, px, is_entry, areas):
+        self.set_dist(px, -1, areas)
+        # 1 means start fill; -1 means end fill
+        self.crossings[px] += (1 if is_entry else -1) * (-1 if COAST_IS_CLOCKWISE else 1)
+
+    def fill_threshold_crossings(self):
+        segments = []
+        try:
+            for i, xing in enumerate(self.crossings):
+                if xing == 1:
+                    if segments and len(segments[-1]) != 2:
+                        raise ValueError
+                    segments.append([i])
+                elif xing == -1:
+                    if segments and len(segments[-1]) != 1:
+                        raise ValueError
+                    if not segments:
+                        segments.append([0, i])
+                    else:
+                        segments[-1].append(i)
+            if segments and len(segments[-1]) == 1:
+                segments[-1].append(self.size)
+        except ValueError:
+            print 'crossings integrity error!'
+            for i, c in enumerate(self.crossings):
+                if c != 0:
+                    print {1: 'start', -1: 'stop'}[c], self.bearing0 + self.res * i, i
+            return
+
+        for start, end in segments:
+            mid = .5 * (start + end)
+            for i in xrange(start, end):
+                if start == 0:
+                    areas_ix = end
+                elif end == self.size:
+                    areas_ix = start
+                else:
+                    areas_ix = start if i < mid else end
+                self.set_dist(i, -1, self.areas[areas_ix])
 
 class SegmentSequencer(object):
     def __init__(self, data, p0, db):
