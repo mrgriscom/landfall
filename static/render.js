@@ -8,20 +8,12 @@ function init() {
     });
 }
 
-NUM_COLORS = 6;
-STEPS = 1000;
-
 function loadColors(after) {
-    HUES = [];
-    for (var i = 0; i < NUM_COLORS; i++) {
-        HUES.push(360. * i / NUM_COLORS);
-    }
-
     WS = new WebSocket('ws://' + location.host + '/colors')
     WS.onmessage = function(e) {
         var data = JSON.parse(e.data);
         COLORS = [];
-        _.each(HUES, function(hue, i) {
+        _.each(PARAMS.hues, function(hue, i) {
             COLORS.push(data[hue]);
         });
         COLORS = _.shuffle(COLORS); // randomize the hue order
@@ -29,12 +21,14 @@ function loadColors(after) {
     };
     setTimeout(function() {
         WS.send(JSON.stringify({
-            hues: HUES,
+            hues: PARAMS.hues,
             lum: [.5, .7],
             sat: [.6, .03],
         }));
     }, 500);
 }
+
+EARTH_MEAN_RAD = 6371009.;
 
 function render(data, width, height) {
     var c = mk_canvas(data.postings.length, height)
@@ -42,7 +36,7 @@ function render(data, width, height) {
     //$('body').append(c.canvas);
 
     var logmin = Math.log(Math.max(10000, data.min_dist));
-    var logmax = Math.log(2*Math.PI * 6371009.);
+    var logmax = Math.log(2 * Math.PI * EARTH_MEAN_RAD);
     console.log(logmin, logmax);
 
     var admin_by_px = [];
@@ -80,7 +74,7 @@ function render(data, width, height) {
         adj[k] = _.keys(v);
     });
 
-    var colors = assign_colors(NUM_COLORS, admins, adj);
+    var colors = assign_colors(PARAMS.hues.length, admins, adj);
     console.log(colors);
 
     var disty = function(dist) {
@@ -96,7 +90,7 @@ function render(data, width, height) {
         var admin = admin_by_px[i];
         if (dist >= 0) {
             var _d = disty(dist);
-            var C = COLORS[colors[admin]][Math.floor(_d.k * (STEPS - 1))];
+            var C = COLORS[colors[admin]][Math.floor(_d.k * (COLORS[0].length - 1))];
             ctx.fillStyle = C;
             ctx.fillRect(i, _d.y, 1, height - _d.y);
         }
@@ -149,9 +143,52 @@ function render(data, width, height) {
 
     var x0 = 0;
     var drawRules = function(first_pass) {
-        $.each([1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 20015.115], function(i, e) {
-            var label = (e >= 20000 ? 'antipode' : e + ' km');
-            var y = disty(1000*e).y;
+        if (PARAMS.dist_unit == 'none') {
+            return;
+        }
+
+        var antipode = Math.PI * EARTH_MEAN_RAD;
+        var units = {
+            km: 1000.,
+            mi: 1609.344,
+            deg: antipode / 90.,
+        };
+        var stops = {
+            km: [.03, .1, .3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, antipode / units.km],
+            mi: [150/5280., 500/5280., 1500/5280., 1, 3, 10, 30, 100, 300, 1000, 3000, antipode / units.mi],
+            deg: [1/3600., 1/1200., 1/360., 1/120., 1/60., 1/20., 1/6., .5, 1, 3, 10, 30, 90],
+        }
+        $.each(stops[PARAMS.dist_unit], function(i, e) {
+            var dist = e * units[PARAMS.dist_unit];
+            var is_antipode = Math.abs(dist - antipode) < 1e-6;
+            if (PARAMS.dist_unit == 'km') {
+                if (is_antipode) {
+                    var label = 'antipode'
+                } else if (e < 1.) {
+                    var label = (1000. * e) + ' m';
+                } else {
+                    var label = e + ' km';
+                }
+            } else if (PARAMS.dist_unit == 'mi') {
+                if (is_antipode) {
+                    var label = 'antipode'
+                } else if (e < 1.) {
+                    var label = Math.round(5280. * e) + ' ft';
+                } else {
+                    var label = e + ' mi';
+                }
+            } else if (PARAMS.dist_unit == 'deg') {
+                if (is_antipode) {
+                    var label = 'nadir'
+                } else if (e < 1/60.) {
+                    var label = Math.round(e * 3600.) + '\u2033 below horizon'
+                } else if (e < 1.) {
+                    var label = Math.round(e * 60.) + '\u2032 below horizon'
+                } else {
+                    var label = e + '\xb0 down'
+                }
+            }
+            var y = disty(dist).y;
 
             fin.context.fillStyle = 'rgba(0, 0, 0, ' + (first_pass ? .2 : .04) + ')';
             fin.context.fillRect(0, y, width, 1);

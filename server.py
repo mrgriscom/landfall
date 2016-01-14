@@ -86,9 +86,23 @@ class OutputListHandler(web.RequestHandler):
 
 class RenderHandler(web.RequestHandler):
     def get(self, tag):
+        num_colors = int(self.get_argument('numcolors', '6'))
+        hues = self.get_argument('hues', '')
+        if hues:
+            hues = map(float, hues.split(','))
+        else:
+            hues = [int(360. * float(i) / num_colors) for i in xrange(num_colors)]
+        dist_unit = self.get_argument('distunit', 'km')
+        assert dist_unit in ('km', 'mi', 'deg', 'none')
+
+        params = {
+            'hues': hues,
+            'dist_unit': dist_unit,
+        }
+
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
-        self.render('render.html', data=data, info=self.get_admin_info(data))
+        self.render('render.html', data=data, params=params, info=self.get_admin_info(data))
 
     def get_admin_info(self, data):
         info = {}

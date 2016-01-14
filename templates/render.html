@@ -12,6 +12,7 @@
 
 {% autoescape None %}
 DATA = {{ json_encode(data) }};
+PARAMS = {{ json_encode(params) }};
 ADMIN_INFO = {{ json_encode(info) }};
 
 $(document).ready(init);
