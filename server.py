@@ -175,9 +175,9 @@ class RenderHandler(web.RequestHandler):
         admins = set(admin_postings)
         pprint(dict((a, admin_info[a]) for a in admins))
 
-        def ix_offset(i, offset, size):
+        def ix_offset(i, offset, size, wrap=data['wraparound']):
             j = i + offset
-            if data['wraparound']:
+            if wrap:
                 return j % size
             else:
                 return j if 0 <= j < size else -1
@@ -211,18 +211,22 @@ class RenderHandler(web.RequestHandler):
         admin_segments = _admin_segments()
 
         interferences = {}
-        def interfere(a, b, type):
+        interf_prio = []
+        def interfere(a, b, type=None):
+            type = type or interf_prio[-1]
             if a != b:
                 key = tuple(sorted((a, b)))
                 if key not in interferences:
                     interferences[key] = type
         
+        interf_prio.append('force')
         for a, b in params['force_interfere']:
             assert a in admins and b in admins
-            interfere(a, b, 'force')
+            interfere(a, b)
 
         MAX_ADJ_INTERF = 2
         for delta in xrange(1, MAX_ADJ_INTERF + 1):
+            interf_prio.append('adj%d' % delta)
             for i in xrange(len(admin_segments)):
                 admin = admin_segments[i]['admin']
                 for dir in (-1, 1):
@@ -230,14 +234,16 @@ class RenderHandler(web.RequestHandler):
                     if adj < 0:
                         continue
                     adj_admin = admin_segments[adj]['admin']
-                    interfere(admin, adj_admin, 'adj%d' % delta)
+                    interfere(admin, adj_admin)
 
         MAX_PX_INTERF = 50
+        interf_prio.append('nearpx')
         unwrapped = list(map(dict, admin_segments)) # deep copy
-        first = unwrapped[0]
-        if first['start'] > first['end']:
-            unwrapped.append({'admin': first['admin'], 'start': first['start'], 'end': data['size'] - 1})
-            first['start'] = 0
+        if unwrapped:
+            first = unwrapped[0]
+            if first['start'] > first['end']:
+                unwrapped.append({'admin': first['admin'], 'start': first['start'], 'end': data['size'] - 1})
+                first['start'] = 0
         seg_starts = [seg['start'] for seg in unwrapped]
         seg_ends = [seg['end'] for seg in unwrapped]
         def overlapping_segments(min, max):
@@ -245,21 +251,27 @@ class RenderHandler(web.RequestHandler):
             start = bisect.bisect_left(seg_ends, min)
             end = bisect.bisect_right(seg_starts, max) - 1
             return unwrapped[start:end+1]
+        world_width = int(round(360. / data['res']))
+        assert world_width >= data['size']
+        assert not data['wraparound'] or world_width == data['size']
         for i, seg in enumerate(admin_segments):
-            seg_width = (seg['end'] - seg['start']) % data['size'] + 1
-            if seg_width + 2*MAX_PX_INTERF >= data['size']:
-                ranges = [(0, data['size'] - 1)]
+            seg_width = (seg['end'] - seg['start']) % world_width + 1
+            if seg_width + 2*MAX_PX_INTERF >= world_width:
+                ranges = [(0, world_width - 1)]
             else:
-                min = (seg['start'] - MAX_PX_INTERF) % data['size']
-                max = (seg['end'] + MAX_PX_INTERF) % data['size']
+                min = (seg['start'] - MAX_PX_INTERF) % world_width
+                max = (seg['end'] + MAX_PX_INTERF) % world_width
                 if min <= max:
                     ranges = [(min, max)]
                 else:
-                    ranges = [(0, max), (min, data['size'] - 1)]
+                    ranges = [(0, max), (min, world_width - 1)]
             for ovl in itertools.chain(*(overlapping_segments(*rng) for rng in ranges)):
-                interfere(seg['admin'], ovl['admin'], 'nearpx')
+                interfere(seg['admin'], ovl['admin'])
 
         pprint(interferences)
+
+
+
 
         """
 
