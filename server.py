@@ -89,6 +89,7 @@ class RenderHandler(web.RequestHandler):
     def get(self, tag):
         width = int(self.get_argument('width', '3000'))
         height = int(self.get_argument('height', '800'))
+        # TODO downsampling
 
         num_colors = int(self.get_argument('numcolors', '6'))
         hues = self.get_argument('hues', '')
@@ -166,6 +167,7 @@ class RenderHandler(web.RequestHandler):
         admin_info = _admin_info()
 
         def change_admin(a):
+            # resolution may be a subdivision so handle before checking subdiv suppression
             a = params['resolve_as'].get(a, a)
             parent = admin_info[a]['parent']
             if parent and parent in params['no_subdivisions']:
@@ -173,9 +175,12 @@ class RenderHandler(web.RequestHandler):
             return a
         admin_postings = map(change_admin, admin_postings)
         admins = set(admin_postings)
-        pprint(dict((a, admin_info[a]) for a in admins))
+        print '\n'.join(sorted('%s %s' % (a, admin_info[a]['name']) for a in admins))
 
-        def ix_offset(i, offset, size, wrap=data['wraparound']):
+        def ix_offset(i, offset, size, wrap=None):
+            # wrap=None (default) = use wrap value of data
+            # wrap=T/F = force wrap mode
+            wrap = data['wraparound'] if wrap is None else wrap
             j = i + offset
             if wrap:
                 return j % size
@@ -224,54 +229,58 @@ class RenderHandler(web.RequestHandler):
             assert a in admins and b in admins
             interfere(a, b)
 
-        MAX_ADJ_INTERF = 2
+        def search_adjacent(i, forward, force_wrap=False):
+            dir = 1 if forward else -1
+            for delta in xrange(1, len(admin_segments)):
+                i_adj = ix_offset(i, dir*delta, len(admin_segments), True if force_wrap else None)
+                if i_adj < 0:
+                    break
+                yield admin_segments[i_adj]
+
+        MAX_ADJ_INTERF = 2  # TODO make param
         for delta in xrange(1, MAX_ADJ_INTERF + 1):
             interf_prio.append('adj%d' % delta)
             for i in xrange(len(admin_segments)):
                 admin = admin_segments[i]['admin']
-                for dir in (-1, 1):
-                    adj = ix_offset(i, dir*delta, len(admin_segments))
-                    if adj < 0:
-                        continue
-                    adj_admin = admin_segments[adj]['admin']
-                    interfere(admin, adj_admin)
+                for dir in (True, False):
+                    seen = set([admin])
+                    for adj in search_adjacent(i, dir):
+                        adj_admin = adj['admin']
+                        seen.add(adj_admin)
+                        if len(seen) == delta + 1:
+                            interfere(admin, adj_admin)
+                            break
 
-        MAX_PX_INTERF = 50
+        MAX_PX_INTERF = 50  # TODO make param (also convert from screen pixels)
         interf_prio.append('nearpx')
-        unwrapped = list(map(dict, admin_segments)) # deep copy
-        if unwrapped:
-            first = unwrapped[0]
-            if first['start'] > first['end']:
-                unwrapped.append({'admin': first['admin'], 'start': first['start'], 'end': data['size'] - 1})
-                first['start'] = 0
-        seg_starts = [seg['start'] for seg in unwrapped]
-        seg_ends = [seg['end'] for seg in unwrapped]
-        def overlapping_segments(min, max):
-            assert 0 <= min <= max < data['size']
-            start = bisect.bisect_left(seg_ends, min)
-            end = bisect.bisect_right(seg_starts, max) - 1
-            return unwrapped[start:end+1]
         world_width = int(round(360. / data['res']))
         assert world_width >= data['size']
         assert not data['wraparound'] or world_width == data['size']
         for i, seg in enumerate(admin_segments):
-            seg_width = (seg['end'] - seg['start']) % world_width + 1
-            if seg_width + 2*MAX_PX_INTERF >= world_width:
-                ranges = [(0, world_width - 1)]
-            else:
-                min = (seg['start'] - MAX_PX_INTERF) % world_width
-                max = (seg['end'] + MAX_PX_INTERF) % world_width
-                if min <= max:
-                    ranges = [(min, max)]
-                else:
-                    ranges = [(0, max), (min, world_width - 1)]
-            for ovl in itertools.chain(*(overlapping_segments(*rng) for rng in ranges)):
-                interfere(seg['admin'], ovl['admin'])
+            for forward in (True, False):
+                for adj in search_adjacent(i, forward, force_wrap=True):
+                    if forward:
+                        if (adj['start'] - seg['end']) % world_width > MAX_PX_INTERF:
+                            break
+                    else:
+                        if (seg['start'] - adj['end']) % world_width > MAX_PX_INTERF:
+                            break
+                    interfere(seg['admin'], adj['admin'])
 
         pprint(interferences)
+        print len(interferences)
+        """
+        next:
 
+        graph coloring
+        want to randomize each run -- randomize order of entries in adjacency matrix?
+        also want to randomize final assignment of graph colors to hues
+        support random seed as a parameter
+        
+        ideally an algorithm with weighted conflicts
+        run some number of times to get best?
 
-
+        """
 
         """
 
@@ -300,6 +309,176 @@ class RenderHandler(web.RequestHandler):
     var colors = assign_colors(PARAMS.hues.length, admins, adj);
     console.log(colors);
 }
+
+function assign_colors2(num_colors, nodes, adj) {
+    var matrix = [];
+    for (var i = 0; i < nodes.length; i++) {
+        var row = [];
+        for (var j = 0; j < nodes.length; j++) {
+            row.push(0);
+        }
+        matrix.push(row);
+    }
+    _.each(adj, function(v, k) {
+        _.each(v, function(e, i) {
+            matrix[nodes.indexOf(k)][nodes.indexOf(e)] = 1;
+        });
+    });
+
+    var coloring = colorizing(matrix);
+    var colorcount = _.max(coloring);
+    for (var i = 0; i < coloring.length; i++) {
+        coloring[i] -= 1;
+    }
+
+    // we have randomized the hue ordering, so don't need to
+    // worry about any biasing effect
+    if (colorcount > num_colors) {
+        // too many colors
+        for (var i = 0; i < coloring.length; i++) {
+            coloring[i] = coloring[i] % num_colors;
+        }
+    } else if (colorcount < num_colors) {
+        // too few colors
+        var remap = {};
+        for (var i = 0; i < num_colors; i++) {
+            var c = i % colorcount;
+            if (!remap[c]) {
+                remap[c] = [];
+            }
+            remap[c].push(i);
+        }
+        for (var i = 0; i < coloring.length; i++) {
+            var opts = remap[coloring[i]];
+            coloring[i] = opts[Math.floor(Math.random() * opts.length)];
+        }
+    }
+
+    var colormap = {};
+    for (var i = 0; i < nodes.length; i++) {
+        colormap[nodes[i]] = coloring[i];
+    }
+    return colormap;
+}
+
+function colorizing(a){  
+  // this function finds the unprocessed vertex of which degree is maximum
+  var MaxDegreeVertex = function(){
+    var max = -1;
+    var max_i;
+    for (var i =0; i<a.length; i++){
+      if ((color[i] === 0) && (degree[i]>max)){
+        max = degree[i];
+        max_i = i;
+      }
+    }
+    return max_i;
+  };
+
+  // find the vertex in NN of which degree is maximum
+  var MaxDegreeInNN = function(){
+    var max = -1;
+    var max_i, i;
+    for (var k=0; k<NN.length; k++){
+      i = NN[k];
+      if ((color[i] === 0) && (degree[i]>max)){
+        max = degree[i];
+        max_i = i;
+      }
+    }
+    return max_i;
+  };
+
+  // this function updates NN array
+  var UpdateNN = function(ColorNumber){
+    NN = [];
+    for (var i=0; i<a.length; i++){
+      if (color[i] === 0){
+        NN.push(i);
+      }
+    }
+    for (var i=0; i<a.length; i++){
+      if (color[i] === ColorNumber){
+        for (var j=0; j<NN.length; j++){
+          while (a[i][NN[j]] === 1){
+            NN.splice(j,1)
+          }
+        }
+      }
+    }
+  };
+
+  // this function will find suitable y from NN
+  var FindSuitableY = function(ColorNumber,VerticesInCommon){
+    var temp,tmp_y,y=0;
+    var scanned = [];
+    VerticesInCommon = 0;
+    for (var i=0; i<NN.length; i++) {
+      tmp_y = NN[i];
+      temp = 0;
+      for (var f=0; f<a.length; f++){
+        scanned[f] = 0;
+      }
+      for (var x=0; x<a.length; x++){
+        if (color[x] === ColorNumber){
+          for (var k=0; k<a.length; k++){
+            if (color[k] === 0 && scanned[k] === 0){
+              if (a[x][k] === 1 && a[tmp_y][k] === 1){
+                temp ++;
+                scanned[k] = 1;
+              }
+            }
+          }
+        }
+      }
+      if (temp > VerticesInCommon){
+        VerticesInCommon = temp;
+        y = tmp_y;
+      }
+    }
+    return [y,VerticesInCommon];
+  };
+
+  var color = [];
+  var degree = [];
+  var NN = [];
+
+  for (var i=0; i<a.length; i++){
+    color[i] = 0;
+    degree[i] = 0;
+    for (var j = 0; j<a.length; j++){
+      if (a[i][j] === 1){
+        degree[i] ++;
+      }
+    }
+  }
+  
+  var x,y;
+  var result;
+  var ColorNumber = 0;
+  var VerticesInCommon = 0;
+  var unprocessed = a.length;
+  while (unprocessed>0){
+    x = MaxDegreeVertex();
+    color[x] = ++ColorNumber;
+    unprocessed --;
+    UpdateNN(ColorNumber);
+    while (NN.length>0){
+      result = FindSuitableY(ColorNumber, VerticesInCommon);
+      y = result[0];
+      VerticesInCommon = result[1];
+      if (VerticesInCommon === 0){
+        y = MaxDegreeInNN();
+      }
+      color[y] = ColorNumber;
+      unprocessed --;
+      UpdateNN(ColorNumber);
+    }
+  }
+  return color
+};
+
+
 """
 
 
