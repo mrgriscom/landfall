@@ -1,81 +1,28 @@
-function init() {
-    var data = DATA;
-
-    var canv;
-    loadColors(function() {
-        canv = render(data, 3000, 800);
-        setupMap(data, canv);
-    });
-}
-
-function loadColors(after) {
-    WS = new WebSocket('ws://' + location.host + '/colors')
-    WS.onmessage = function(e) {
-        var data = JSON.parse(e.data);
-        COLORS = [];
-        _.each(PARAMS.hues, function(hue, i) {
-            COLORS.push(data[hue]);
-        });
-        COLORS = _.shuffle(COLORS); // randomize the hue order
-        after();
-    };
-    setTimeout(function() {
-        WS.send(JSON.stringify({
-            hues: PARAMS.hues,
-            lum: [.5, .7],
-            sat: [.6, .03],
-        }));
-    }, 500);
-}
-
 EARTH_MEAN_RAD = 6371009.;
+EARTH_FARTHEST = Math.PI * EARTH_MEAN_RAD;
+EARTH_CIRCUMF = 2 * Math.PI * EARTH_MEAN_RAD;
 
-function render(data, width, height) {
-    var c = mk_canvas(data.postings.length, height)
+function init() {
+    // DATA
+    // PARAMS
+    // ADMIN_INFO
+
+    var canvas = render();
+    setupMap(canvas);
+}
+
+function render() {
+    var width = PARAMS.dim[0];
+    var height = PARAMS.dim[1];
+
+    var c = mk_canvas(DATA.postings.length, height)
     var ctx = c.context;
     //$('body').append(c.canvas);
 
-    var logmin = Math.log(Math.max(10000, data.min_dist));
-    var logmax = Math.log(2 * Math.PI * EARTH_MEAN_RAD);
-    console.log(logmin, logmax);
+    var logmin = Math.log(DATA.min_dist); // TODO logmin for sat
+    var logmax = Math.log(EARTH_CIRCUMF);
 
-    var admin_by_px = [];
-    for (var i = 0; i < data.postings.length; i++) {
-        var admin = data.postings[i][1] || 'X0';
-        admin_by_px.push(admin);
-    }
 
-    // determine administrative areas that appear
-    var _admins = {};
-    for (var i = 0; i < admin_by_px.length; i++) {
-        _admins[admin_by_px[i]] = true;
-    }
-    var admins = _.keys(_admins);
-    console.log(admins);
-
-    // build adjacency graph
-    var adj = {};
-    var adjedge = function(a, b) {
-        if (!adj[a]) {
-            adj[a] = {};
-        }
-        adj[a][b] = true;
-    };
-    for (var i = 0; i < admin_by_px.length; i++) {
-        var a0 = admin_by_px[i];
-        var a1 = admin_by_px[(i + 1) % admin_by_px.length];
-        if (a0 == a1) {
-            continue;
-        }
-        adjedge(a0, a1);
-        adjedge(a1, a0);
-    }
-    _.each(adj, function(v, k) {
-        adj[k] = _.keys(v);
-    });
-
-    var colors = assign_colors(PARAMS.hues.length, admins, adj);
-    console.log(colors);
 
     var disty = function(dist) {
         var logdist = Math.log(dist);
@@ -85,35 +32,36 @@ function render(data, width, height) {
     }
 
     // land
-    for (var i = 0; i < data.postings.length; i++) {
-        var dist = data.postings[i][0];
-        var admin = admin_by_px[i];
+    for (var i = 0; i < DATA.postings.length; i++) {
+        var dist = DATA.postings[i][0];
+        var admin = admin_postings[i];
         if (dist >= 0) {
             var _d = disty(dist);
-            var C = COLORS[colors[admin]][Math.floor(_d.k * (COLORS[0].length - 1))];
+            // TODO randomize coloring
+            var C = PARAMS.colors[PARAMS.hues[colors[admin]]][Math.floor(_d.k * (PARAMS.color_steps - 1))];
             ctx.fillStyle = C;
             ctx.fillRect(i, _d.y, 1, height - _d.y);
         }
     }
 
-    var c2 = mk_canvas(data.postings.length, height)
+    var c2 = mk_canvas(DATA.postings.length, height)
     var ctx2 = c2.context;
     //$('body').append(c2.canvas);
 
     // creases
-    for (var i = 0; i < data.postings.length; i++) {
-        var dist0 = data.postings[i][0];        
-        var dist1 = data.postings[(i + 1) % data.postings.length][0];
+    for (var i = 0; i < DATA.postings.length; i++) {
+        var dist0 = DATA.postings[i][0];        
+        var dist1 = DATA.postings[(i + 1) % DATA.postings.length][0];
         var diff = Math.abs(dist0 - dist1);
         var closer = Math.min(dist0, dist1);
         var farther = Math.max(dist0, dist1);
-        var quantum = closer * Math.PI / 180. * data.res;
+        var quantum = closer * Math.PI / 180. * DATA.res;
         if (diff >= 10 * quantum) {
             var logdiff = Math.abs(Math.log(dist0) - Math.log(dist1));
             var k = (Math.log(farther) - logmin) / (logmax - logmin);
             var y = height * k;
             
-            var pixelw = data.postings.length / width;
+            var pixelw = DATA.postings.length / width;
             var weight = 6 * logdiff / (logmax - logmin);
             var weight2 = Math.min(diff / 5e5, .3);
             weight = Math.max(weight, weight2);
@@ -147,7 +95,7 @@ function render(data, width, height) {
             return;
         }
 
-        var antipode = Math.PI * EARTH_MEAN_RAD;
+        var antipode = EARTH_FARTHEST;
         var units = {
             km: 1000.,
             mi: 1609.344,
@@ -305,7 +253,7 @@ function setupMap(data, canv) {
 
             var xn = MIN[x][0] / $canv.width();
             var dist = MIN[x][1];
-            var bearing = data.range[0] + (fixmod(data.range[1] - data.range[0], 360.) || 360.) * xn;
+            var bearing = data.range[0] + data.lonspan * xn;
 
             var target = line_plotter(data.origin, bearing)(dist);
             console.log(target);
@@ -324,7 +272,7 @@ function setupMap(data, canv) {
     });
 }
 
-function assign_colors(num_colors, nodes, adj) {
+function assign_colors2(num_colors, nodes, adj) {
     var matrix = [];
     for (var i = 0; i < nodes.length; i++) {
         var row = [];
