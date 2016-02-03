@@ -5,7 +5,6 @@ EARTH_CIRCUMF = 2 * Math.PI * EARTH_MEAN_RAD;
 function init() {
     // DATA
     // PARAMS
-    // ADMIN_INFO
 
     var canvas = render();
     setupMap(canvas);
@@ -22,8 +21,6 @@ function render() {
     var logmin = Math.log(DATA.min_dist); // TODO logmin for sat
     var logmax = Math.log(EARTH_CIRCUMF);
 
-
-
     var disty = function(dist) {
         var logdist = Math.log(dist);
         var k = Math.max((logdist - logmin) / (logmax - logmin), 0);
@@ -31,14 +28,16 @@ function render() {
         return {k: k, y: y};
     }
 
+    console.log(DATA.colors);
+
     // land
     for (var i = 0; i < DATA.postings.length; i++) {
         var dist = DATA.postings[i][0];
-        var admin = admin_postings[i];
+        var admin = DATA.admin_postings[i];
         if (dist >= 0) {
             var _d = disty(dist);
-            // TODO randomize coloring
-            var C = PARAMS.colors[PARAMS.hues[colors[admin]]][Math.floor(_d.k * (PARAMS.color_steps - 1))];
+            var ramp = PARAMS.colors[DATA.colors[admin]];
+            var C = ramp[Math.floor(_d.k * (ramp.length - 1))];
             ctx.fillStyle = C;
             ctx.fillRect(i, _d.y, 1, height - _d.y);
         }
@@ -162,12 +161,12 @@ function render() {
     fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
     fin.context.textAlign = 'center';
     var bearing_tick = 15;
-    var bearing_label_min = bearing_tick * (Math.floor(data.range[0] / bearing_tick) - 1);
-    var bearing_label_max = bearing_tick * (Math.ceil(data.range[1] / bearing_tick) + 1);
-    var is_polar = Math.abs(data.origin[0]) > 90. - 1e-6;
+    var bearing_label_min = bearing_tick * (Math.floor(DATA.range[0] / bearing_tick) - 1);
+    var bearing_label_max = bearing_tick * (Math.ceil(DATA.range[1] / bearing_tick) + 1);
+    var is_polar = Math.abs(DATA.origin[0]) > 90. - 1e-6;
     for (var bearing = bearing_label_min; bearing <= bearing_label_max; bearing += bearing_tick) {
         var nbear = fixmod(bearing, 360);
-        var x = (bearing - data.range[0]) * width / (data.range[1] - data.range[0]);
+        var x = (bearing - DATA.range[0]) * width / (DATA.range[1] - DATA.range[0]);
         var major = (bearing % 45 == 0);
 
         if (!is_polar) {
@@ -177,7 +176,7 @@ function render() {
                 var label = nbear + '\xb0';
             }
         } else {
-            var lon = (data.origin[0] > 0 ? fixmod(-nbear, 360) : nbear);
+            var lon = (DATA.origin[0] > 0 ? fixmod(-nbear, 360) : nbear);
             if (lon == 0 || lon == 180) {
                 var dir = '';
             } else if (lon < 180) {
@@ -216,7 +215,7 @@ function mk_canvas(w, h) {
     return {canvas: c, context: ctx};
 }
 
-function setupMap(data, canv) {
+function setupMap(canv) {
     var $canv = $(canv);
 
     COMPANION = window.open('/companion.html', 'companion', 'width=600,height=600,location=no,menubar=no,toolbar=no,status=no,personalbar=no');
@@ -230,9 +229,9 @@ function setupMap(data, canv) {
 
     var MAX = Array($canv.width());
     var MIN = Array($canv.width());
-    for (var i = 0; i < data.postings.length; i++) {
-        var dist = data.postings[i][0];
-        var fpx = (i + .5) / data.postings.length * $canv.width();
+    for (var i = 0; i < DATA.postings.length; i++) {
+        var dist = DATA.postings[i][0];
+        var fpx = (i + .5) / DATA.postings.length * $canv.width();
         var px = Math.floor(fpx);
         if (MAX[px] === undefined || (dist > MAX[px][1])) {
             MAX[px] = [fpx, dist];
@@ -253,9 +252,9 @@ function setupMap(data, canv) {
 
             var xn = MIN[x][0] / $canv.width();
             var dist = MIN[x][1];
-            var bearing = data.range[0] + data.lonspan * xn;
+            var bearing = DATA.range[0] + DATA.lonspan * xn;
 
-            var target = line_plotter(data.origin, bearing)(dist);
+            var target = line_plotter(DATA.origin, bearing)(dist);
             console.log(target);
             COMPANION.postMessage({
                 pos: target,

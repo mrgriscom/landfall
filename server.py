@@ -19,7 +19,8 @@ import landfall as lf
 from datetime import datetime
 import itertools
 import process_data as pd
-import bisect
+import random
+import math
 
 from munsell import munsell as m
 m.init()
@@ -123,7 +124,7 @@ class RenderHandler(web.RequestHandler):
             'dim': [width, height],
             'colors': colors,
             'force_interfere': force_interfere,
-            'no_subdivisions': no_subdivisions,
+            'no_subdivisions': list(no_subdivisions),
             'resolve_as': resolve_as,
             'dist_unit': dist_unit,
         }
@@ -174,6 +175,7 @@ class RenderHandler(web.RequestHandler):
                 a = parent
             return a
         admin_postings = map(change_admin, admin_postings)
+        data['admin_postings'] = admin_postings
         admins = set(admin_postings)
         print '\n'.join(sorted('%s %s' % (a, admin_info[a]['name']) for a in admins))
 
@@ -237,7 +239,7 @@ class RenderHandler(web.RequestHandler):
                     break
                 yield admin_segments[i_adj]
 
-        MAX_ADJ_INTERF = 2  # TODO make param
+        MAX_ADJ_INTERF = 2  # TODO make param (necessary?)
         for delta in xrange(1, MAX_ADJ_INTERF + 1):
             interf_prio.append('adj%d' % delta)
             for i in xrange(len(admin_segments)):
@@ -269,215 +271,100 @@ class RenderHandler(web.RequestHandler):
 
         pprint(interferences)
         print len(interferences)
+
+        costs = dict((type, 50**(len(interf_prio) - 1 - i)) for i, type in enumerate(interf_prio))
+        adjacency = dict((edge, costs[type]) for edge, type in interferences.iteritems())
+
+        def rand_color():
+            return random.randint(0, len(params['colors']) - 1)
+        # initial state is random
+        colors = dict((a, rand_color()) for a in admins)
+        color_keys = list(colors.keys())
+        def coloring_energy(colors):
+            return sum(cost for edge, cost in adjacency.iteritems() if colors[edge[0]] == colors[edge[1]])
+        def make_move():
+            new_config = dict(colors)
+            if random.random() < .5:
+                # change color
+                new_config[random.choice(color_keys)] = rand_color()
+            else:
+                # swap colors
+                pair = random.sample(color_keys, 2) if len(color_keys) >= 2 else (0, 0)
+                new_config[pair[0]], new_config[pair[1]] = new_config[pair[1]], new_config[pair[0]]
+            return new_config
+
+        COOLING_BASELINE = 0.99 # each node touched ~10 times per 10% drop in temperature
+        AVG_NODES_TOUCHED_PER_MOVE = 1.5 # 50% change color (1 node) + 50% swap (2 nodes)
+        cooling_factor = COOLING_BASELINE**(AVG_NODES_TOUCHED_PER_MOVE / len(color_keys))
+        frozen_threshold = .9
+
+        current_energy = coloring_energy(colors)
+
+        temp_baseline_iterations = 100
+        baselines = []
+        # TODO what if this never fills
+        while len(baselines) < temp_baseline_iterations:
+            new_energy = coloring_energy(make_move())
+            if new_energy > current_energy:
+                baselines.append(new_energy - current_energy)
+        def intercept(fn, min, max, res):
+            mid = .5*(min + max)
+            if max - min < res:
+                return mid
+            elif fn(mid) < 0:
+                return intercept(fn, mid, max, res)
+            else:
+                return intercept(fn, min, mid, res)
+        def accept_rate(temp):
+            return sum(math.exp(-ediff / temp) for ediff in baselines) / len(baselines)
+        init_worse_accept_p = .1
+        temperature = math.exp(intercept(lambda x: accept_rate(math.exp(x)) - init_worse_accept_p, 0., math.log(1e9), .1))
+
+        i = 0
+        frozen_at = None
+        while True:
+            if current_energy == 0:
+                break
+            if frozen_at is not None and temperature / frozen_at < frozen_threshold:
+                break
+
+            new_config = make_move()
+            new_energy = coloring_energy(new_config)
+
+            if new_energy <= current_energy:
+                acceptance_p = 1.
+                accept = True
+                state = 'better'
+            else:
+                acceptance_p = math.exp((current_energy - new_energy) / temperature)
+                accept = (random.random() < acceptance_p)
+                state = 'worse' if accept else 'ign'
+            print '%.5f % 8d % 8d %.5f %s' % (temperature, current_energy, new_energy, acceptance_p, state)
+
+            if accept:
+                if current_energy != new_energy:
+                    frozen_at = temperature
+                colors = new_config
+                current_energy = new_energy
+
+            i += 1
+            temperature *= cooling_factor
+
+        data['colors'] = colors
+        print data['colors']
+
+        print 'conflicts:'
+        for edge, type in interferences.iteritems():
+            if colors[edge[0]] == colors[edge[1]]:
+                print edge, type
+
         """
         next:
 
-        graph coloring
-        want to randomize each run -- randomize order of entries in adjacency matrix?
-        also want to randomize final assignment of graph colors to hues
+        interferencing ignoring close islands
+        force country to color
         support random seed as a parameter
         
-        ideally an algorithm with weighted conflicts
-        run some number of times to get best?
-
-        """
-
-        """
-
-
-    // build adjacency graph
-    var adj = {};
-    var adjedge = function(a, b) {
-        if (!adj[a]) {
-            adj[a] = {};
-        }
-        adj[a][b] = true;
-    };
-    for (var i = 0; i < DATA.size; i++) {
-        var a0 = admin_postings[i];
-        var a1 = admin_postings[(i + 1) % admin_postings.length];
-        if (a0 == a1) {
-            continue;
-        }
-        adjedge(a0, a1);
-        adjedge(a1, a0);
-    }
-    _.each(adj, function(v, k) {
-        adj[k] = _.keys(v);
-    });
-
-    var colors = assign_colors(PARAMS.hues.length, admins, adj);
-    console.log(colors);
-}
-
-function assign_colors2(num_colors, nodes, adj) {
-    var matrix = [];
-    for (var i = 0; i < nodes.length; i++) {
-        var row = [];
-        for (var j = 0; j < nodes.length; j++) {
-            row.push(0);
-        }
-        matrix.push(row);
-    }
-    _.each(adj, function(v, k) {
-        _.each(v, function(e, i) {
-            matrix[nodes.indexOf(k)][nodes.indexOf(e)] = 1;
-        });
-    });
-
-    var coloring = colorizing(matrix);
-    var colorcount = _.max(coloring);
-    for (var i = 0; i < coloring.length; i++) {
-        coloring[i] -= 1;
-    }
-
-    // we have randomized the hue ordering, so don't need to
-    // worry about any biasing effect
-    if (colorcount > num_colors) {
-        // too many colors
-        for (var i = 0; i < coloring.length; i++) {
-            coloring[i] = coloring[i] % num_colors;
-        }
-    } else if (colorcount < num_colors) {
-        // too few colors
-        var remap = {};
-        for (var i = 0; i < num_colors; i++) {
-            var c = i % colorcount;
-            if (!remap[c]) {
-                remap[c] = [];
-            }
-            remap[c].push(i);
-        }
-        for (var i = 0; i < coloring.length; i++) {
-            var opts = remap[coloring[i]];
-            coloring[i] = opts[Math.floor(Math.random() * opts.length)];
-        }
-    }
-
-    var colormap = {};
-    for (var i = 0; i < nodes.length; i++) {
-        colormap[nodes[i]] = coloring[i];
-    }
-    return colormap;
-}
-
-function colorizing(a){  
-  // this function finds the unprocessed vertex of which degree is maximum
-  var MaxDegreeVertex = function(){
-    var max = -1;
-    var max_i;
-    for (var i =0; i<a.length; i++){
-      if ((color[i] === 0) && (degree[i]>max)){
-        max = degree[i];
-        max_i = i;
-      }
-    }
-    return max_i;
-  };
-
-  // find the vertex in NN of which degree is maximum
-  var MaxDegreeInNN = function(){
-    var max = -1;
-    var max_i, i;
-    for (var k=0; k<NN.length; k++){
-      i = NN[k];
-      if ((color[i] === 0) && (degree[i]>max)){
-        max = degree[i];
-        max_i = i;
-      }
-    }
-    return max_i;
-  };
-
-  // this function updates NN array
-  var UpdateNN = function(ColorNumber){
-    NN = [];
-    for (var i=0; i<a.length; i++){
-      if (color[i] === 0){
-        NN.push(i);
-      }
-    }
-    for (var i=0; i<a.length; i++){
-      if (color[i] === ColorNumber){
-        for (var j=0; j<NN.length; j++){
-          while (a[i][NN[j]] === 1){
-            NN.splice(j,1)
-          }
-        }
-      }
-    }
-  };
-
-  // this function will find suitable y from NN
-  var FindSuitableY = function(ColorNumber,VerticesInCommon){
-    var temp,tmp_y,y=0;
-    var scanned = [];
-    VerticesInCommon = 0;
-    for (var i=0; i<NN.length; i++) {
-      tmp_y = NN[i];
-      temp = 0;
-      for (var f=0; f<a.length; f++){
-        scanned[f] = 0;
-      }
-      for (var x=0; x<a.length; x++){
-        if (color[x] === ColorNumber){
-          for (var k=0; k<a.length; k++){
-            if (color[k] === 0 && scanned[k] === 0){
-              if (a[x][k] === 1 && a[tmp_y][k] === 1){
-                temp ++;
-                scanned[k] = 1;
-              }
-            }
-          }
-        }
-      }
-      if (temp > VerticesInCommon){
-        VerticesInCommon = temp;
-        y = tmp_y;
-      }
-    }
-    return [y,VerticesInCommon];
-  };
-
-  var color = [];
-  var degree = [];
-  var NN = [];
-
-  for (var i=0; i<a.length; i++){
-    color[i] = 0;
-    degree[i] = 0;
-    for (var j = 0; j<a.length; j++){
-      if (a[i][j] === 1){
-        degree[i] ++;
-      }
-    }
-  }
-  
-  var x,y;
-  var result;
-  var ColorNumber = 0;
-  var VerticesInCommon = 0;
-  var unprocessed = a.length;
-  while (unprocessed>0){
-    x = MaxDegreeVertex();
-    color[x] = ++ColorNumber;
-    unprocessed --;
-    UpdateNN(ColorNumber);
-    while (NN.length>0){
-      result = FindSuitableY(ColorNumber, VerticesInCommon);
-      y = result[0];
-      VerticesInCommon = result[1];
-      if (VerticesInCommon === 0){
-        y = MaxDegreeInNN();
-      }
-      color[y] = ColorNumber;
-      unprocessed --;
-      UpdateNN(ColorNumber);
-    }
-  }
-  return color
-};
-
 
 """
 
