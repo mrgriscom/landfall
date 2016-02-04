@@ -293,20 +293,38 @@ class RenderHandler(web.RequestHandler):
                 new_config[pair[0]], new_config[pair[1]] = new_config[pair[1]], new_config[pair[0]]
             return new_config
 
-        COOLING_BASELINE = 0.99 # each node touched ~10 times per 10% drop in temperature
-        AVG_NODES_TOUCHED_PER_MOVE = 1.5 # 50% change color (1 node) + 50% swap (2 nodes)
+        # baseline speed of cooling -- calibrated so that each node is touched ~10 times per 10% drop in temperature
+        COOLING_BASELINE = 0.99
+
+        # average # of nodes touched per move (50% change color (1 node) + 50% swap (2 nodes))
+        AVG_NODES_TOUCHED_PER_MOVE = 1.5
+
+        # failsafe to stop searching
+        MIN_TEMPERATURE = 0.0001
+
+        # cooling amount per iteration
         cooling_factor = COOLING_BASELINE**(AVG_NODES_TOUCHED_PER_MOVE / len(color_keys))
+
+        # if no change to energy (within 'frozen_window') after this much relative temperature drop, terminate
         frozen_threshold = .9
+        frozen_window = .5 # since all our costs are integers, just has to be less than 1
+
+        # set initial temperature where this proportion of worse moves are accepted (conventional wisdom suggests
+        # .5 but this problem space seems to converge well from a lower starting temperature)
+        init_worse_accept_p = .1
 
         current_energy = coloring_energy(colors)
 
         temp_baseline_iterations = 100
+        temp_baseline_failsafe_iterations = 1000
         baselines = []
-        # TODO what if this never fills
-        while len(baselines) < temp_baseline_iterations:
+        for i in xrange(temp_baseline_failsafe_iterations):
             new_energy = coloring_energy(make_move())
             if new_energy > current_energy:
                 baselines.append(new_energy - current_energy)
+                if len(baselines) == temp_baseline_iterations:
+                    break
+
         def intercept(fn, min, max, res):
             mid = .5*(min + max)
             if max - min < res:
@@ -316,16 +334,23 @@ class RenderHandler(web.RequestHandler):
             else:
                 return intercept(fn, min, mid, res)
         def accept_rate(temp):
-            return sum(math.exp(-ediff / temp) for ediff in baselines) / len(baselines)
-        init_worse_accept_p = .1
+            if baselines:
+                return sum(math.exp(-ediff / temp) for ediff in baselines) / len(baselines)
+            else:
+                return 0. # just a failsafe in case we can't get any worse examples to calibrate
+                          # which would imply the current state is pretty fucking bad, thus force
+                          # the temperature to the max possible. alternatively, the state space
+                          # may be very small, in which case the 'frozen' state will occur
+                          # immediately.
         temperature = math.exp(intercept(lambda x: accept_rate(math.exp(x)) - init_worse_accept_p, 0., math.log(1e9), .1))
 
         i = 0
-        frozen_at = None
-        while True:
+        frozen_at = temperature
+        frozen_energy = current_energy
+        while temperature > MIN_TEMPERATURE:
             if current_energy == 0:
                 break
-            if frozen_at is not None and temperature / frozen_at < frozen_threshold:
+            if temperature / frozen_at < frozen_threshold:
                 break
 
             new_config = make_move()
@@ -342,10 +367,11 @@ class RenderHandler(web.RequestHandler):
             print '%.5f % 8d % 8d %.5f %s' % (temperature, current_energy, new_energy, acceptance_p, state)
 
             if accept:
-                if current_energy != new_energy:
-                    frozen_at = temperature
                 colors = new_config
                 current_energy = new_energy
+                if abs(frozen_energy - current_energy) >= frozen_window:
+                    frozen_at = temperature
+                    frozen_energy = current_energy
 
             i += 1
             temperature *= cooling_factor
