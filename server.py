@@ -120,6 +120,8 @@ class RenderHandler(web.RequestHandler):
         no_subdivisions = set(filter(None, no_subdivisions.split(',')))
         resolve_as = self.get_argument('resolve', '')
         resolve_as = dict(pair.split(':') for pair in resolve_as.split(',') if pair)
+        random_seed = self.get_argument('randseed', '')
+        random_seed = int(random_seed) if random_seed else None
 
         dist_unit = self.get_argument('distunit', 'km')
         assert dist_unit in ('km', 'mi', 'deg', 'none')
@@ -132,6 +134,7 @@ class RenderHandler(web.RequestHandler):
             'force_interfere': force_interfere,
             'no_subdivisions': list(no_subdivisions),
             'resolve_as': resolve_as,
+            'random_seed': random_seed,
             'dist_unit': dist_unit,
         }
 
@@ -285,6 +288,13 @@ class RenderHandler(web.RequestHandler):
 
         costs = dict((type, 50**(len(interf_prio) - 1 - i)) for i, type in enumerate(interf_prio))
         adjacency = dict((edge, costs[type]) for edge, type in interferences.iteritems())
+
+        # INITIALIZE RANDOMNESS
+        seed = params['random_seed']
+        if seed is None:
+            seed = hash(random.getstate())
+        random.seed(seed)
+        print 'random seed: %s' % seed
 
         def rand_color():
             return random.randint(0, len(params['colors']) - 1)
