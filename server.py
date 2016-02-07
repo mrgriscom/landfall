@@ -110,8 +110,12 @@ class RenderHandler(web.RequestHandler):
             return COLOR_CACHE[key]
         colors = map(get_ramp, hues)
 
+        force_color = self.get_argument('forcecolor', '')
+        force_color = dict(e.split(':') for e in force_color.split(',') if e)
+        for k in force_color.keys():
+            force_color[k] = int(force_color[k])
         force_interfere = self.get_argument('diffcolor', '')
-        force_interfere = [pair.split(':') for pair in force_interfere.split(',') if pair]
+        force_interfere = list(itertools.chain(*(itertools.combinations(pair.split(':'), 2) for pair in force_interfere.split(',') if pair)))
         no_subdivisions = self.get_argument('nosubdiv', '')
         no_subdivisions = set(filter(None, no_subdivisions.split(',')))
         resolve_as = self.get_argument('resolve', '')
@@ -120,9 +124,11 @@ class RenderHandler(web.RequestHandler):
         dist_unit = self.get_argument('distunit', 'km')
         assert dist_unit in ('km', 'mi', 'deg', 'none')
 
+        # TODO no subdiv should modify explicitly specified cc's in params
         params = {
             'dim': [width, height],
             'colors': colors,
+            'force_color': force_color,
             'force_interfere': force_interfere,
             'no_subdivisions': list(no_subdivisions),
             'resolve_as': resolve_as,
@@ -228,8 +234,13 @@ class RenderHandler(web.RequestHandler):
         
         interf_prio.append('force')
         for a, b in params['force_interfere']:
-            assert a in admins and b in admins
+            assert a in admins, a
+            assert b in admins, b
             interfere(a, b)
+
+        for cc, i in params['force_color'].iteritems():
+            assert cc in admins, cc
+            assert 0 <= i < len(params['colors']), i
 
         def search_adjacent(i, forward, force_wrap=False):
             dir = 1 if forward else -1
@@ -278,8 +289,8 @@ class RenderHandler(web.RequestHandler):
         def rand_color():
             return random.randint(0, len(params['colors']) - 1)
         # initial state is random
-        colors = dict((a, rand_color()) for a in admins)
-        color_keys = list(colors.keys())
+        colors = dict((a, params['force_color'].get(a, rand_color())) for a in admins)
+        color_keys = list(set(colors.keys()) - set(params['force_color']))
         def coloring_energy(colors):
             return sum(cost for edge, cost in adjacency.iteritems() if colors[edge[0]] == colors[edge[1]])
         def make_move():
@@ -344,7 +355,6 @@ class RenderHandler(web.RequestHandler):
                           # immediately.
         temperature = math.exp(intercept(lambda x: accept_rate(math.exp(x)) - init_worse_accept_p, 0., math.log(1e9), .1))
 
-        i = 0
         frozen_at = temperature
         frozen_energy = current_energy
         while temperature > MIN_TEMPERATURE:
@@ -369,11 +379,10 @@ class RenderHandler(web.RequestHandler):
             if accept:
                 colors = new_config
                 current_energy = new_energy
-                if abs(frozen_energy - current_energy) >= frozen_window:
+                if abs(frozen_energy - current_energy) > frozen_window:
                     frozen_at = temperature
                     frozen_energy = current_energy
 
-            i += 1
             temperature *= cooling_factor
 
         data['colors'] = colors
