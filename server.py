@@ -320,7 +320,7 @@ class RenderHandler(web.RequestHandler):
         # average # of nodes touched per move (50% change color (1 node) + 50% swap (2 nodes))
         AVG_NODES_TOUCHED_PER_MOVE = 1.5
 
-        # failsafe to stop searching
+        # failsafe to stop searching -- should normally terminate earlier by reaching a frozen state
         MIN_TEMPERATURE = 0.0001
 
         # cooling amount per iteration
@@ -365,6 +365,7 @@ class RenderHandler(web.RequestHandler):
                           # immediately.
         temperature = math.exp(intercept(lambda x: accept_rate(math.exp(x)) - init_worse_accept_p, 0., math.log(1e9), .1))
 
+        i = 0
         frozen_at = temperature
         frozen_energy = current_energy
         while temperature > MIN_TEMPERATURE:
@@ -393,7 +394,9 @@ class RenderHandler(web.RequestHandler):
                     frozen_at = temperature
                     frozen_energy = current_energy
 
+            i += 1
             temperature *= cooling_factor
+        print '%d simulated annealing iterations' % i
 
         data['colors'] = colors
         print data['colors']
@@ -407,8 +410,6 @@ class RenderHandler(web.RequestHandler):
         next:
 
         interferencing ignoring close islands
-        force country to color
-        support random seed as a parameter
         
 
 """
