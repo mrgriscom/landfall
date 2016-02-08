@@ -21,6 +21,7 @@ import itertools
 import process_data as pd
 import random
 import math
+import util as u
 
 from munsell import munsell as m
 m.init()
@@ -288,6 +289,8 @@ class RenderHandler(web.RequestHandler):
 
         costs = dict((type, 50**(len(interf_prio) - 1 - i)) for i, type in enumerate(interf_prio))
         adjacency = dict((edge, costs[type]) for edge, type in interferences.iteritems())
+        adjacency.update((tuple(reversed(edge)), costs[type]) for edge, type in interferences.iteritems())
+        adjacent_to = u.map_reduce(adjacency.keys(), lambda edge: [edge], set)
 
         # INITIALIZE RANDOMNESS
         seed = params['random_seed']
@@ -302,17 +305,39 @@ class RenderHandler(web.RequestHandler):
         colors = dict((a, params['force_color'].get(a, rand_color())) for a in admins)
         color_keys = list(set(colors.keys()) - set(params['force_color']))
         def coloring_energy(colors):
-            return sum(cost for edge, cost in adjacency.iteritems() if colors[edge[0]] == colors[edge[1]])
-        def make_move():
-            new_config = dict(colors)
+            return sum(cost for edge, cost in adjacency.iteritems() if edge[0] < edge[1] and colors[edge[0]] == colors[edge[1]])
+        def energy_diff(colors, move):
+            def node_diff_cost(node, newcolor, ignore=[]):
+                def node_cost(color):
+                    return sum(adjacency[(node, neighbor)] for neighbor in adjacent_to[node] if neighbor not in ignore and color == colors[neighbor])
+                return node_cost(newcolor) - node_cost(colors[node])
+
+            if move[0] == 'change':
+                cc, color = move[1:]
+                if colors[cc] == color:
+                    return 0
+                return node_diff_cost(cc, color)
+            elif move[0] == 'swap':
+                a, b = move[1:]
+                if colors[a] == colors[b]:
+                    return 0
+                return node_diff_cost(a, colors[b], [b]) + node_diff_cost(b, colors[a], [a])
+        def gen_move():
             if random.random() < .5:
                 # change color
-                new_config[random.choice(color_keys)] = rand_color()
+                return ('change', random.choice(color_keys), rand_color())
             else:
                 # swap colors
                 pair = random.sample(color_keys, 2) if len(color_keys) >= 2 else (0, 0)
-                new_config[pair[0]], new_config[pair[1]] = new_config[pair[1]], new_config[pair[0]]
-            return new_config
+                return ('swap', pair[0], pair[1])
+        def apply_move(colors, move):
+            if move[0] == 'change':
+                cc, color = move[1:]
+                colors[cc] = color
+            elif move[0] == 'swap':
+                a, b = move[1:]
+                colors[a], colors[b] = colors[b], colors[a]
+            return colors
 
         # baseline speed of cooling -- calibrated so that each node is touched ~10 times per 10% drop in temperature
         COOLING_BASELINE = 0.99
@@ -340,9 +365,9 @@ class RenderHandler(web.RequestHandler):
         temp_baseline_failsafe_iterations = 1000
         baselines = []
         for i in xrange(temp_baseline_failsafe_iterations):
-            new_energy = coloring_energy(make_move())
-            if new_energy > current_energy:
-                baselines.append(new_energy - current_energy)
+            ediff = energy_diff(colors, gen_move())
+            if ediff > 0:
+                baselines.append(ediff)
                 if len(baselines) == temp_baseline_iterations:
                     break
 
@@ -374,22 +399,22 @@ class RenderHandler(web.RequestHandler):
             if temperature / frozen_at < frozen_threshold:
                 break
 
-            new_config = make_move()
-            new_energy = coloring_energy(new_config)
+            move = gen_move()
+            ediff = energy_diff(colors, move)
 
-            if new_energy <= current_energy:
+            if ediff <= 0.:
                 acceptance_p = 1.
                 accept = True
                 state = 'better'
             else:
-                acceptance_p = math.exp((current_energy - new_energy) / temperature)
+                acceptance_p = math.exp(-ediff / temperature)
                 accept = (random.random() < acceptance_p)
                 state = 'worse' if accept else 'ign'
-            print '%.5f % 8d % 8d %.5f %s' % (temperature, current_energy, new_energy, acceptance_p, state)
+            print '%.5f % 8d % 8d %.5f %s' % (temperature, current_energy, current_energy+ediff, acceptance_p, state)
 
             if accept:
-                colors = new_config
-                current_energy = new_energy
+                colors = apply_move(colors, move)
+                current_energy += ediff
                 if abs(frozen_energy - current_energy) > frozen_window:
                     frozen_at = temperature
                     frozen_energy = current_energy
