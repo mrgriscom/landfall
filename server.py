@@ -91,7 +91,7 @@ class RenderHandler(web.RequestHandler):
     def get(self, tag):
         width = int(self.get_argument('width', '3000'))
         height = int(self.get_argument('height', '800'))
-        # TODO downsampling
+        min_downscale = float(self.get_argument('mindownscale', '2'))
 
         num_colors = int(self.get_argument('numcolors', '6'))
         hues = self.get_argument('hues', '')
@@ -141,12 +141,37 @@ class RenderHandler(web.RequestHandler):
 
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
-        data['size'] = len(data['postings'])
         data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
         data['wraparound'] = (data['lonspan'] == 360.)
+        self.process_downsampling(data, width, min_downscale)
         self.process_admins(data, params)
 
         self.render('render.html', data=data, params=params)
+
+    def process_downsampling(self, data, width, min_downscale):
+        data['size'] = len(data['postings'])
+        downscale = math.log(float(data['size']) / width, 2)
+        if downscale < 0:
+            raise ValueError('rendering width greater than data size')
+        elif downscale < min_downscale:
+            print 'WARNING: Max recommended width is %dpx (downscaling factor: %s); suggest recomputing the source data at higher resolution to avoid aliasing' % (math.floor(data['size'] * 2**-min_downscale), min_downscale)
+        downsample = 2**max(math.floor(downscale - min_downscale), 0)
+        if downsample > 1:
+            print 'Downsampling by %dx' % downsample
+            new_size = int(round(float(data['size']) / downsample))
+            scale_factor = float(new_size) / data['size']
+            downsampled = [(-1, None)] * new_size
+            for i, posting in enumerate(data['postings']):
+                dist, admin = posting
+                if dist < 0:
+                    continue
+                i_ds = int(math.floor(i * scale_factor))
+                ds_dist = downsampled[i_ds][0]
+                if ds_dist < 0 or dist < ds_dist:
+                    downsampled[i_ds] = posting
+            data['postings'] = downsampled
+            data['size'] = new_size
+            data['res'] *= downsample
 
     def process_admins(self, data, params):
         from pprint import pprint #debug
@@ -430,14 +455,6 @@ class RenderHandler(web.RequestHandler):
         for edge, type in interferences.iteritems():
             if colors[edge[0]] == colors[edge[1]]:
                 print edge, type
-
-        """
-        next:
-
-        interferencing ignoring close islands
-        
-
-"""
 
 
 
