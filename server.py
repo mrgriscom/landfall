@@ -127,7 +127,7 @@ class RenderHandler(web.RequestHandler):
         dist_unit = self.get_argument('distunit', 'km')
         assert dist_unit in ('km', 'mi', 'deg', 'none')
 
-        # TODO no subdiv should modify explicitly specified cc's in params
+        # TODO nosubdiv should modify explicitly specified cc's in params
         params = {
             'dim': [width, height],
             'colors': colors,
@@ -143,14 +143,41 @@ class RenderHandler(web.RequestHandler):
             data = json.load(f)
         data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
         data['wraparound'] = (data['lonspan'] == 360.)
-        self.process_downsampling(data, width, min_downscale)
+
+        left = self.get_argument('left', '')
+        left = float(left) if left else data['range'][0]
+        right = self.get_argument('right', '')
+        right = float(right) if right else data['range'][1]
+        trimleft = float(self.get_argument('trimleft', '0'))
+        trimright = float(self.get_argument('trimright', '0'))
+        if trimleft != 0 or trimright != 0:
+            assert not data['wraparound'], 'trim params not valid for full-360 wraparound; consider bearmargin'
+        left += trimleft
+        right -= trimright
+        params['bear0'] = left
+        params['bearspan'] = (right - left) % 360. or 360.
+        if not data['wraparound']:
+            leftrel = (left - data['range'][0]) % 360.
+            rightrel = (right - data['range'][0]) % 360.
+            assert leftrel < data['lonspan'] and rightrel <= data['lonspan'] and leftrel < rightrel, 'specified range out of data range'
+        bearcenter = self.get_argument('bearcenter', '')
+        bearmargin = self.get_argument('bearmargin', '')
+        if bearcenter or bearmargin:
+            assert data['wraparound'], 'only valid for full-360 wraparound'
+            bearcenter = float(bearcenter) if bearcenter else .5*(data['range'][0] + data['range'][1])
+            bearmargin = float(bearmargin) if bearmargin else 0
+            params['bear0'] = bearcenter - 180. - bearmargin
+            params['bearspan'] = 360. + 2. * bearmargin
+        params['res'] = float(params['bearspan']) / width
+
+        self.process_downsampling(data, params['res'], min_downscale)
         self.process_admins(data, params)
 
         self.render('render.html', data=data, params=params)
 
-    def process_downsampling(self, data, width, min_downscale):
+    def process_downsampling(self, data, bearres, min_downscale):
         data['size'] = len(data['postings'])
-        downscale = math.log(float(data['size']) / width, 2)
+        downscale = math.log(bearres / data['res'], 2)
         if downscale < 0:
             raise ValueError('rendering width greater than data size')
         elif downscale < min_downscale:
@@ -293,7 +320,8 @@ class RenderHandler(web.RequestHandler):
                             interfere(admin, adj_admin)
                             break
 
-        MAX_PX_INTERF = 50  # TODO make param (also convert from screen pixels)
+        MAX_PX_INTERF = 20  # screen pixels; TODO make param
+        MAX_POSTINGS_INTERF = int(round(float(MAX_PX_INTERF) * params['res'] / data['res']))
         interf_prio.append('nearpx')
         world_width = int(round(360. / data['res']))
         assert world_width >= data['size']
@@ -302,10 +330,10 @@ class RenderHandler(web.RequestHandler):
             for forward in (True, False):
                 for adj in search_adjacent(i, forward, force_wrap=True):
                     if forward:
-                        if (adj['start'] - seg['end']) % world_width > MAX_PX_INTERF:
+                        if (adj['start'] - seg['end']) % world_width > MAX_POSTINGS_INTERF:
                             break
                     else:
-                        if (seg['start'] - adj['end']) % world_width > MAX_PX_INTERF:
+                        if (seg['start'] - adj['end']) % world_width > MAX_POSTINGS_INTERF:
                             break
                     interfere(seg['admin'], adj['admin'])
 
@@ -414,6 +442,7 @@ class RenderHandler(web.RequestHandler):
                           # may be very small, in which case the 'frozen' state will occur
                           # immediately.
         temperature = math.exp(intercept(lambda x: accept_rate(math.exp(x)) - init_worse_accept_p, 0., math.log(1e9), .1))
+        print 'init temperature:', temperature
 
         i = 0
         frozen_at = temperature
@@ -435,7 +464,7 @@ class RenderHandler(web.RequestHandler):
                 acceptance_p = math.exp(-ediff / temperature)
                 accept = (random.random() < acceptance_p)
                 state = 'worse' if accept else 'ign'
-            print '%.5f % 8d % 8d %.5f %s' % (temperature, current_energy, current_energy+ediff, acceptance_p, state)
+            #print '%.5f % 8d % 8d %.5f %s' % (temperature, current_energy, current_energy+ediff, acceptance_p, state)
 
             if accept:
                 colors = apply_move(colors, move)

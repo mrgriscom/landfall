@@ -14,11 +14,14 @@ function render() {
     var width = PARAMS.dim[0];
     var height = PARAMS.dim[1];
 
-    var c = mk_canvas(DATA.postings.length, height)
+    var raw_width = Math.round(width * PARAMS.res / DATA.res);
+    var raw_offset = Math.round(fixmod(PARAMS.bear0 - DATA.range[0], 360.) / DATA.res);
+
+    var c = mk_canvas(raw_width, height)
     var ctx = c.context;
     //$('body').append(c.canvas);
 
-    var logmin = Math.log(DATA.min_dist); // TODO logmin for sat
+    var logmin = Math.log(DATA.min_dist);
     var logmax = Math.log(EARTH_CIRCUMF);
 
     var disty = function(dist) {
@@ -31,9 +34,10 @@ function render() {
     console.log(DATA.colors);
 
     // land
-    for (var i = 0; i < DATA.postings.length; i++) {
-        var dist = DATA.postings[i][0];
-        var admin = DATA.admin_postings[i];
+    for (var i = 0; i < raw_width; i++) {
+        var i_posting = fixmod(i + raw_offset, DATA.postings.length);
+        var dist = DATA.postings[i_posting][0];
+        var admin = DATA.admin_postings[i_posting];
         if (dist >= 0) {
             var _d = disty(dist);
             var ramp = PARAMS.colors[DATA.colors[admin]];
@@ -43,14 +47,15 @@ function render() {
         }
     }
 
-    var c2 = mk_canvas(DATA.postings.length, height)
+    var c2 = mk_canvas(raw_width, height)
     var ctx2 = c2.context;
     //$('body').append(c2.canvas);
 
     // creases
-    for (var i = 0; i < DATA.postings.length; i++) {
-        var dist0 = DATA.postings[i][0];        
-        var dist1 = DATA.postings[(i + 1) % DATA.postings.length][0];
+    for (var i = 0; i < raw_width - 1; i++) {
+        var i_posting = fixmod(i + raw_offset, DATA.postings.length);
+        var dist0 = DATA.postings[i_posting][0];
+        var dist1 = DATA.postings[(i_posting + 1) % DATA.postings.length][0];
         var diff = Math.abs(dist0 - dist1);
         var closer = Math.min(dist0, dist1);
         var farther = Math.max(dist0, dist1);
@@ -60,7 +65,7 @@ function render() {
             var k = (Math.log(farther) - logmin) / (logmax - logmin);
             var y = height * k;
             
-            var pixelw = DATA.postings.length / width;
+            var pixelw = raw_width / width;
             var weight = 6 * logdiff / (logmax - logmin);
             var weight2 = Math.min(diff / 5e5, .3);
             weight = Math.max(weight, weight2);
@@ -89,6 +94,8 @@ function render() {
     $('body').append(fin.canvas);
 
     var x0 = 0;
+    // TODO don't clip to top
+    // TODO topmost label on bottom if would clip
     var drawRules = function(first_pass) {
         if (PARAMS.dist_unit == 'none') {
             return;
@@ -101,8 +108,8 @@ function render() {
             deg: antipode / 90.,
         };
         var stops = {
-            km: [.03, .1, .3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, antipode / units.km],
-            mi: [150/5280., 500/5280., 1500/5280., 1, 3, 10, 30, 100, 300, 1000, 3000, antipode / units.mi],
+            km: [.01, .03, .1, .3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, antipode / units.km],
+            mi: [50/5280., 150/5280., 500/5280., 1500/5280., 1, 3, 10, 30, 100, 300, 1000, 3000, antipode / units.mi],
             deg: [1/3600., 1/1200., 1/360., 1/120., 1/60., 1/20., 1/6., .5, 1, 3, 10, 30, 90],
         }
         $.each(stops[PARAMS.dist_unit], function(i, e) {
@@ -125,14 +132,15 @@ function render() {
                     var label = e + ' mi';
                 }
             } else if (PARAMS.dist_unit == 'deg') {
+                var _bh = ' below horizon';
                 if (is_antipode) {
                     var label = 'nadir'
                 } else if (e < 1/60.) {
-                    var label = Math.round(e * 3600.) + '\u2033 below horizon'
+                    var label = Math.round(e * 3600.) + '\u2033' + _bh;
                 } else if (e < 1.) {
-                    var label = Math.round(e * 60.) + '\u2032 below horizon'
+                    var label = Math.round(e * 60.) + '\u2032' + _bh;
                 } else {
-                    var label = e + '\xb0 down'
+                    var label = e + '\xb0' + _bh;
                 }
             }
             var y = disty(dist).y;
@@ -161,12 +169,12 @@ function render() {
     fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
     fin.context.textAlign = 'center';
     var bearing_tick = 15;
-    var bearing_label_min = bearing_tick * (Math.floor(DATA.range[0] / bearing_tick) - 1);
-    var bearing_label_max = bearing_tick * (Math.ceil(DATA.range[1] / bearing_tick) + 1);
+    var bearing_label_min = bearing_tick * (Math.floor(PARAMS.bear0 / bearing_tick) - 1);
+    var bearing_label_max = bearing_tick * (Math.ceil((PARAMS.bear0 + PARAMS.bearspan) / bearing_tick) + 1);
     var is_polar = Math.abs(DATA.origin[0]) > 90. - 1e-6;
     for (var bearing = bearing_label_min; bearing <= bearing_label_max; bearing += bearing_tick) {
         var nbear = fixmod(bearing, 360);
-        var x = (bearing - DATA.range[0]) * width / (DATA.range[1] - DATA.range[0]);
+        var x = (bearing - PARAMS.bear0) * width / PARAMS.bearspan;
         var major = (bearing % 45 == 0);
 
         if (!is_polar) {
