@@ -17,18 +17,24 @@ function render() {
     var raw_width = Math.round(width * PARAMS.res / DATA.res);
     var raw_offset = Math.round(fixmod(PARAMS.bear0 - DATA.range[0], 360.) / DATA.res);
 
-    var c = mk_canvas(raw_width, height)
+    var c = mk_canvas(raw_width, height);
     var ctx = c.context;
     //$('body').append(c.canvas);
 
-    var logmin = Math.log(DATA.min_dist);
-    var logmax = Math.log(EARTH_CIRCUMF);
+    var logmin = Math.log(PARAMS.min_dist || DATA.min_dist);
+    var logmax = Math.log(PARAMS.max_dist || EARTH_CIRCUMF);
+    var colorlogmin = (PARAMS.colordists[0] == 0 ? logmin : Math.log(PARAMS.colordists[0]));
+    var colorlogmax = (PARAMS.colordists[1] == 0 ? logmax : Math.log(PARAMS.colordists[1]));
 
     var disty = function(dist, no_clip) {
         var logdist = Math.log(dist);
         var k = Math.max((logdist - logmin) / (logmax - logmin), no_clip ? -1e9 : 0);
-        var y = height * k;
-        return {k: k, y: y};
+        return height * k;
+    }
+    var distramp = function(dist) {
+        var logdist = Math.log(dist);
+        var k = (logdist - colorlogmin) / (colorlogmax - colorlogmin);
+        return Math.min(Math.max(k, 0.), 1.);
     }
 
     console.log(DATA.colors);
@@ -39,11 +45,11 @@ function render() {
         var dist = DATA.postings[i_posting][0];
         var admin = DATA.admin_postings[i_posting];
         if (dist >= 0) {
-            var _d = disty(dist);
+            var y = disty(dist);
             var ramp = PARAMS.colors[DATA.colors[admin]];
-            var C = ramp[Math.floor(_d.k * (ramp.length - 1))];
+            var C = ramp[Math.floor(distramp(dist) * (ramp.length - 1))];
             ctx.fillStyle = C;
-            ctx.fillRect(i, _d.y, 1, height - _d.y);
+            ctx.fillRect(i, y, 1, height - y);
         }
     }
 
@@ -62,7 +68,7 @@ function render() {
         var quantum = closer * Math.PI / 180. * DATA.res;
         if (diff >= 10 * quantum) {
             var logdiff = Math.abs(Math.log(dist0) - Math.log(dist1));
-            var y = disty(farther).y;
+            var y = disty(farther);
             var pixelw = raw_width / width;
             var weight = 6 * logdiff / (logmax - logmin);
             var weight2 = Math.min(diff / 5e5, .3);
@@ -138,7 +144,7 @@ function render() {
                     var label = e + '\xb0' + _bh;
                 }
             }
-            var y = disty(dist, true).y;
+            var y = disty(dist, true);
             if (y < -1e-6) {
                 return;
             }

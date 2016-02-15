@@ -93,6 +93,9 @@ class RenderHandler(web.RequestHandler):
         height = int(self.get_argument('height', '800'))
         min_downscale = float(self.get_argument('mindownscale', '2'))
 
+        min_dist = float(self.get_argument('mindist', '0'))
+        max_dist = float(self.get_argument('maxdist', '0'))
+
         num_colors = int(self.get_argument('numcolors', '6'))
         hues = self.get_argument('hues', '')
         if hues:
@@ -110,6 +113,9 @@ class RenderHandler(web.RequestHandler):
                 COLOR_CACHE[key] = color_ramp(*key)
             return COLOR_CACHE[key]
         colors = map(get_ramp, hues)
+        color_near_dist = float(self.get_argument('colorneardist', '0'))
+        color_far_dist = float(self.get_argument('colorfardist', '0'))
+        assert all(k < lf.EARTH_CIRCUMF for k in (color_near_dist, color_far_dist))
 
         force_color = self.get_argument('forcecolor', '')
         force_color = dict(e.split(':') for e in force_color.split(',') if e)
@@ -130,7 +136,10 @@ class RenderHandler(web.RequestHandler):
         # TODO nosubdiv should modify explicitly specified cc's in params
         params = {
             'dim': [width, height],
+            'min_dist': min_dist,
+            'max_dist': max_dist,
             'colors': colors,
+            'colordists': [color_near_dist, color_far_dist],
             'force_color': force_color,
             'force_interfere': force_interfere,
             'no_subdivisions': list(no_subdivisions),
@@ -337,8 +346,8 @@ class RenderHandler(web.RequestHandler):
                             break
                     interfere(seg['admin'], adj['admin'])
 
-        pprint(interferences)
-        print len(interferences)
+        #pprint(interferences)
+        #print len(interferences)
 
         costs = dict((type, 50**(len(interf_prio) - 1 - i)) for i, type in enumerate(interf_prio))
         adjacency = dict((edge, costs[type]) for edge, type in interferences.iteritems())
@@ -478,7 +487,7 @@ class RenderHandler(web.RequestHandler):
         print '%d simulated annealing iterations' % i
 
         data['colors'] = colors
-        print data['colors']
+        #print data['colors']
 
         print 'conflicts:'
         for edge, type in interferences.iteritems():
