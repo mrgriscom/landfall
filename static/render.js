@@ -90,9 +90,7 @@ function render() {
     var fin = mk_canvas(width, height);
     $('body').append(fin.canvas);
 
-    var x0 = 0;
-    // TODO don't clip to top
-    // TODO topmost label on bottom if would clip
+    var ylabel_x0 = 0;
     var drawRules = function(first_pass) {
         if (PARAMS.dist_unit == 'none') {
             return;
@@ -154,7 +152,7 @@ function render() {
             fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
             fin.context.font = ylabel_fontsize + 'pt sans-serif';
             fin.context.textBaseline = (label_below ? 'top' : 'alphabetic');
-            fin.context.fillText(label, x0 + ylabel_padding, y - (label_below ? -1 : 1) * ylabel_padding);
+            fin.context.fillText(label, ylabel_x0 + ylabel_padding, y - (label_below ? -1 : 1) * ylabel_padding);
         });
     }
     drawRules(true);
@@ -171,9 +169,11 @@ function render() {
 
     drawRules(false);
 
-    fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
-    fin.context.textAlign = 'center';
-    var bearing_tick = 15;
+    var bearing_preferred_tick_spacing = 150; // px; TODO make param
+    var bearing_preferred_ticks = [90, 30, 15, 5, 1];
+    var bearing_tick = _.min(bearing_preferred_ticks, function(e) {
+        return Math.abs(Math.log(e / PARAMS.res / bearing_preferred_tick_spacing));
+    });
     var bearing_label_min = bearing_tick * (Math.floor(PARAMS.bear0 / bearing_tick) - 1);
     var bearing_label_max = bearing_tick * (Math.ceil((PARAMS.bear0 + PARAMS.bearspan) / bearing_tick) + 1);
     var is_polar = Math.abs(DATA.origin[0]) > 90. - 1e-6;
@@ -206,6 +206,8 @@ function render() {
         } else {
             fin.context.font = 'bold 12pt sans-serif';
         }
+        fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
+        fin.context.textAlign = 'center';
         fin.context.fillText(label, x, height - 5);
     }
 
