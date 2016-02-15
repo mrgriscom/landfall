@@ -62,22 +62,48 @@ function render() {
         var i_posting = fixmod(i + raw_offset, DATA.postings.length);
         var dist0 = DATA.postings[i_posting][0];
         var dist1 = DATA.postings[(i_posting + 1) % DATA.postings.length][0];
-        var diff = Math.abs(dist0 - dist1);
         var closer = Math.min(dist0, dist1);
         var farther = Math.max(dist0, dist1);
         var quantum = closer * Math.PI / 180. * DATA.res;
-        if (diff >= 10 * quantum) {
-            var logdiff = Math.abs(Math.log(dist0) - Math.log(dist1));
-            var y = disty(farther);
+
+        var edge_weight_px = function(farther) {
+            if (farther < closer) {
+                return 0;
+            }
+            var diff = Math.abs(closer - farther);
+            if (diff < 10 * quantum) {
+                return 0;
+            }
+            var logdiff = Math.abs(Math.log(closer) - Math.log(farther));
             var pixelw = raw_width / width;
             var weight = 6 * logdiff / (logmax - logmin);
             var weight2 = Math.min(diff / 5e5, .3);
             weight = Math.max(weight, weight2);
-            var _w = pixelw * Math.min(weight, 1.) / 3;
-            var x0 = i+1 - (dist0 > dist1 ? _w : 0);
-            ctx2.fillStyle = '#000';
-            ctx2.fillRect(x0, y, _w, height);
+            return pixelw * Math.min(weight, 1.) / 3;
+        };
+
+        var _w = edge_weight_px(farther);
+        if (_w == 0) {
+            continue;
         }
+        for (var t = 1; t < _w; t++) {
+            var k = (dist0 > dist1 ? i - t : i+1 + t);
+            if (k < 0 || k >= raw_width) {
+                break;
+            }
+            var k_posting = fixmod(k + raw_offset, DATA.postings.length);
+            var dist = DATA.postings[k_posting][0];
+            var _w2 = edge_weight_px(dist);
+            if (_w2 < t) {
+                _w = t;
+                break;
+            }
+            _w = Math.min(_w, _w2);
+        }
+
+        var x0 = i+1 - (dist0 > dist1 ? _w : 0);
+        ctx2.fillStyle = '#000';
+        ctx2.fillRect(x0, disty(farther), _w, height);
     }
 
     var downsize = function(src) {
