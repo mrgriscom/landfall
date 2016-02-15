@@ -24,9 +24,9 @@ function render() {
     var logmin = Math.log(DATA.min_dist);
     var logmax = Math.log(EARTH_CIRCUMF);
 
-    var disty = function(dist) {
+    var disty = function(dist, no_clip) {
         var logdist = Math.log(dist);
-        var k = Math.max((logdist - logmin) / (logmax - logmin), 0);
+        var k = Math.max((logdist - logmin) / (logmax - logmin), no_clip ? -1e9 : 0);
         var y = height * k;
         return {k: k, y: y};
     }
@@ -62,9 +62,7 @@ function render() {
         var quantum = closer * Math.PI / 180. * DATA.res;
         if (diff >= 10 * quantum) {
             var logdiff = Math.abs(Math.log(dist0) - Math.log(dist1));
-            var k = (Math.log(farther) - logmin) / (logmax - logmin);
-            var y = height * k;
-            
+            var y = disty(farther).y;
             var pixelw = raw_width / width;
             var weight = 6 * logdiff / (logmax - logmin);
             var weight2 = Math.min(diff / 5e5, .3);
@@ -74,7 +72,6 @@ function render() {
             ctx2.fillStyle = '#000';
             ctx2.fillRect(x0, y, _w, height);
         }
-
     }
 
     var downsize = function(src) {
@@ -143,13 +140,21 @@ function render() {
                     var label = e + '\xb0' + _bh;
                 }
             }
-            var y = disty(dist).y;
+            var y = disty(dist, true).y;
+            if (y < -1e-6) {
+                return;
+            }
+
+            var ylabel_fontsize = 8;
+            var ylabel_padding = 2;
+            var label_below = (y < ylabel_fontsize + 2 * ylabel_padding);
 
             fin.context.fillStyle = 'rgba(0, 0, 0, ' + (first_pass ? .2 : .04) + ')';
             fin.context.fillRect(0, y, width, 1);
             fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
-            fin.context.font = '8pt sans-serif';
-            fin.context.fillText(label, x0 + 2, y - 2);
+            fin.context.font = ylabel_fontsize + 'pt sans-serif';
+            fin.context.textBaseline = (label_below ? 'top' : 'alphabetic');
+            fin.context.fillText(label, x0 + ylabel_padding, y - (label_below ? -1 : 1) * ylabel_padding);
         });
     }
     drawRules(true);
