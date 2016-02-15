@@ -109,12 +109,12 @@ function render() {
             deg: antipode / 90.,
         };
         var stops = {
-            km: [.01, .03, .1, .3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, antipode / units.km],
-            mi: [50/5280., 150/5280., 500/5280., 1500/5280., 1, 3, 10, 30, 100, 300, 1000, 3000, antipode / units.mi],
-            deg: [1/3600., 1/1200., 1/360., 1/120., 1/60., 1/20., 1/6., .5, 1, 3, 10, 30, 90],
+            km: [.01, .03, .1, .3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 'antip'],
+            mi: [50/5280., 150/5280., 500/5280., 1500/5280., 1, 3, 10, 30, 100, 300, 1000, 3000, 'antip'],
+            deg: [1/3600., 1/1200., 1/360., 1/120., 1/60., 1/20., 1/6., .5, 1, 3, 10, 30, 'antip'],
         }
-        $.each(stops[PARAMS.dist_unit], function(i, e) {
-            var dist = e * units[PARAMS.dist_unit];
+        $.each(PARAMS.yticks || stops[PARAMS.dist_unit], function(i, e) {
+            var dist = (e == 'antip' ? antipode : e * units[PARAMS.dist_unit]);
             var is_antipode = Math.abs(dist - antipode) < 1e-6;
             if (PARAMS.dist_unit == 'km') {
                 if (is_antipode) {

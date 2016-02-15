@@ -87,6 +87,8 @@ class OutputListHandler(web.RequestHandler):
             outputs.append(data)
         self.render('list.html', outputs=outputs)
 
+# TODO panorama exif
+
 class RenderHandler(web.RequestHandler):
     def get(self, tag):
         width = int(self.get_argument('width', '3000'))
@@ -95,6 +97,11 @@ class RenderHandler(web.RequestHandler):
 
         min_dist = float(self.get_argument('mindist', '0'))
         max_dist = float(self.get_argument('maxdist', '0'))
+
+        # custom ticks for distance axis -- stopgap for better automatic logic
+        yticks = self.get_argument('yticks', None)
+        if yticks:
+            yticks = [float(y) if y != 'antip' else y for y in yticks.split(',')]
 
         num_colors = int(self.get_argument('numcolors', '6'))
         hues = self.get_argument('hues', '')
@@ -146,6 +153,7 @@ class RenderHandler(web.RequestHandler):
             'resolve_as': resolve_as,
             'random_seed': random_seed,
             'dist_unit': dist_unit,
+            'yticks': yticks,
         }
 
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
