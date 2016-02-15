@@ -118,7 +118,8 @@ function render() {
             var is_antipode = Math.abs(dist - antipode) < 1e-6;
             if (PARAMS.dist_unit == 'km') {
                 if (is_antipode) {
-                    var label = 'antipode'
+                    var antip_units = dist / units[PARAMS.dist_unit];
+                    var label = 'antipode (' + Math.round(antip_units) + ' km)'
                 } else if (e < 1.) {
                     var label = (1000. * e) + ' m';
                 } else {
@@ -126,7 +127,8 @@ function render() {
                 }
             } else if (PARAMS.dist_unit == 'mi') {
                 if (is_antipode) {
-                    var label = 'antipode'
+                    var antip_units = dist / units[PARAMS.dist_unit];
+                    var label = 'antipode (' + Math.round(antip_units) + ' mi)'
                 } else if (e < 1.) {
                     var label = Math.round(5280. * e) + ' ft';
                 } else {
