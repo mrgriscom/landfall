@@ -329,6 +329,7 @@ function setupMap(canv) {
         var unit = {label: PARAMS.dist_unit || 'km'};
         unit.size = UNITS[unit.label];
         COMPANION.postMessage({
+            origin: DATA.origin,
             pos: target,
             bearing: bearing,
             dist: dist,
@@ -375,7 +376,6 @@ function init_companion() {
         'gmap': L.tileLayer('https://mts{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {subdomains: '0123'}),
         'gsat': L.tileLayer('https://mts{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {subdomains: '0123'}),
         'osm': L.tileLayer('http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'),
-        'mc': L.tileLayer('http://{s}.tile.cloudmade.com/1a1b06b230af4efdbb989ea99e9841af/999/256/{z}/{x}/{y}.png'),
     };
     L.control.layers(layers).addTo(map);
     map.addLayer(layers['gmap']);
@@ -408,6 +408,19 @@ function init_companion() {
             } else {
                 MMTIMER = setTimeout(update, 100);
             }
+
+            setMapOverlay(map, 'cast', new L.geoJson(mk_geojson(e.data, 256 * Math.pow(2, map.getZoom())), {
+                style: function(feature) {
+                    return {
+                        color: 'red',
+                        opacity: .8,
+                        weight: 2,
+                    }
+                },
+                onEachFeature: function (feature, layer) {
+                    layer.options.smoothFactor = 0;
+                }
+            }));
         }
     }, false);
 
@@ -440,3 +453,57 @@ function fmt_ang(k, pad, prec) {
 function fmt_ll(k, dir, pad, prec) {
     return dir[k >= 0 ? 0 : 1] + fmt_ang(Math.abs(k), pad, prec);
 };
+
+
+
+
+function setMapOverlay(map, name, geom) {
+    if (map[name]) {
+        map.removeLayer(map[name]);
+    }
+    map.addLayer(geom);
+    map[name] = geom;
+}
+
+// nicely split up geometry that crosses the IDL
+function process_geo(points) {
+    var segments = [];
+    var segment = [];
+    for (var i = 0; i < points.length - 1; i++) {
+        var a = points[i];
+        var b = points[i + 1];
+        segment.push(a);
+        if (Math.abs(a[0] - b[0]) > 180.) {
+            segment.push([unwraparound(a[0], b[0], 360), b[1]]);
+            segments.push(segment);
+            segment = [];
+            segment.push([unwraparound(b[0], a[0], 360), a[1]]);
+        }
+    }
+    segment.push(b);
+    segments.push(segment);
+    return segments;
+}
+
+function mk_geojson(data, scale_px) {
+    var geojson = {
+        type: 'FeatureCollection',
+        features: []
+    };
+    var addMulti = function(props, points) {
+        // need to split into separate linestring features because
+        // leaflet geojson has issues with multi*
+        _.each(process_geo(points), function(e) {
+            geojson.features.push({
+                type: 'Feature',
+                properties: props,
+                geometry: {
+                    type: 'LineString', //'MultiLineString',
+                    coordinates: e,
+                }
+            });
+        });
+    }
+    addMulti({name: 'line'}, lineplot(data.origin, data.bearing, data.dist, scale_px, 'end')); 
+    return geojson;
+}

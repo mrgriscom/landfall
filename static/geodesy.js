@@ -233,12 +233,16 @@ function base_point(p0, dist) {
     }
 }
 
-function lineplot(p0, heading, maxdist, scale_px) {
+function lineplot(p0, heading, maxdist, scale_px, pbase) {
+    var plotter = line_plotter(p0, heading);
+    if (pbase == 'end') {
+        pbase = plotter(maxdist);
+    }
     return mapplot(
-        line_plotter(p0, heading),
+        plotter,
         // don't start at zero to avoid clipping error when using antipole as basis
         [1e-6 * maxdist, .5 * maxdist, maxdist],
-        base_point(p0, maxdist), scale_px, 100
+        pbase, scale_px, 100
     );
 }
 
@@ -248,6 +252,15 @@ function circplot(p0, radius, scale_px) {
         [0, 60, 120, 180, 240, 300, 360],
         base_point(p0, radius), scale_px, 1
     );
+}
+
+/* xy is google style upper left=(0, 0), lower right=(1, 1) */
+function ll_to_xy(lat, lon) {
+    var x = lon / 360. + .5;
+    var rlat = lat * Math.PI / 180.;
+    var merc_y = Math.log(Math.tan(.5 * rlat + .25 * Math.PI));
+    var y = .5 - merc_y / (2. * Math.PI);
+    return {x: x, y: y};
 }
 
 function mapplot(plotter, anchors, pbase, scale_px, min_dt) {
@@ -274,4 +287,21 @@ function mapplot(plotter, anchors, pbase, scale_px, min_dt) {
         },
         min_dt
     ), function(e) { return [unwraparound(pbase[1], e.ll[1], 360), e.ll[0]]; });
+}
+
+function mod(a, b) {
+    return ((a % b) + b) % b;
+}
+
+function wraparound_diff(diff, rng) {
+    rng = rng || 1.;
+    return mod(diff + .5 * rng, rng) - .5 * rng;
+}
+
+function unwraparound(base, val, rng) {
+    return base + wraparound_diff(val - base, rng);
+}
+
+function lon_norm(lon) {
+    return mod(lon + 180., 360.) - 180.;
 }
