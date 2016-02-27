@@ -14,7 +14,9 @@ function init() {
     // PARAMS
 
     var canvas = render();
-    setupMap(canvas);
+    $('#map').click(function() {
+        setupMap(canvas);
+    });
 }
 
 function render() {
@@ -277,6 +279,10 @@ function mk_canvas(w, h) {
 }
 
 function setupMap(canv) {
+    if (window.COMPANION) {
+        return;
+    }
+
     var $canv = $(canv);
 
     COMPANION = window.open('/companion.html', 'companion', 'width=600,height=600,location=no,menubar=no,toolbar=no,status=no,personalbar=no');
@@ -309,7 +315,7 @@ function setupMap(canv) {
     }
 
     $canv.mousemove(function(e) {
-        if (window.FREEZE) {
+        if (window.FREEZE || window.COMPANION == null) {
             return;
         }
 
