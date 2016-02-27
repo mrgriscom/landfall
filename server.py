@@ -138,7 +138,9 @@ class RenderHandler(web.RequestHandler):
         random_seed = int(random_seed) if random_seed else None
 
         dist_unit = self.get_argument('distunit', 'km')
-        assert dist_unit in ('km', 'mi', 'deg', 'none')
+        assert dist_unit in ('km', 'mi', 'nmi', 'deg', 'none')
+        if dist_unit == 'none':
+            dist_unit = None
 
         # TODO nosubdiv should modify explicitly specified cc's in params
         params = {
@@ -245,6 +247,7 @@ class RenderHandler(web.RequestHandler):
             entities.update(parents)
             return dict((k, v) for k, v in info.iteritems() if k in entities)
         admin_info = _admin_info()
+        data['admin_info'] = admin_info
 
         def change_admin(a):
             # resolution may be a subdivision so handle before checking subdiv suppression
@@ -507,8 +510,42 @@ class RenderHandler(web.RequestHandler):
 
 class KmlHandler(web.RequestHandler):
     def get(self, tag):
+        return None
+
+        """
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
+
+        def get_bearing(i):
+            return data['range'][0] + float(i) * data['res']
+
+        def contiguous_segments():
+            start = 0
+            for i in xrange(1, data['size']):
+                j = (i + 1) % data['size']
+                if j == 0 and not data['wraparound']:
+                    break
+                dist_i = data['postings'][i]
+                dist_j = data['postings'][j]
+                quantum = min(dist_i, dist_j) * math.radians(data['res'])
+                if abs(dist_i - dist_j) >= 10. * quantum:
+                    yield (start, i)
+                    start = j
+            if data['wraparound']:
+                # shit, already yielded
+            else:
+                yield (start, data['size'] - 1)
+
+
+        # wraparound or constrained
+        # split into contiguous segments (edges vs. centers)
+        # split by admin
+        # max # points
+
+        # discontinuities
+        # max ray length
+
+        # mindist and bear limits
 
         # TODO(clean this up):
 
@@ -533,6 +570,7 @@ class KmlHandler(web.RequestHandler):
         self.set_header('Content-Type', 'application/vnd.google-earth.kml+xml')
         self.set_header('Content-Disposition', 'attachment; filename="landfall.kml"')
         self.render('render.kml', segments=segments)
+"""
 
 COLOR_CACHE = {}
 

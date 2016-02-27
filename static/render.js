@@ -1,6 +1,13 @@
 EARTH_MEAN_RAD = 6371009.;
-EARTH_FARTHEST = Math.PI * EARTH_MEAN_RAD;
+EARTH_ANTIPODE = Math.PI * EARTH_MEAN_RAD;
 EARTH_CIRCUMF = 2 * Math.PI * EARTH_MEAN_RAD;
+
+UNITS = {
+    km: 1000.,
+    mi: 1609.344,
+    nmi: 1852.,
+    deg: EARTH_ANTIPODE / 90.,
+};
 
 function init() {
     // DATA
@@ -124,27 +131,23 @@ function render() {
 
     var ylabel_x0 = 0;
     var drawRules = function(first_pass) {
-        if (PARAMS.dist_unit == 'none') {
+        if (PARAMS.dist_unit == null) {
             return;
         }
 
-        var antipode = EARTH_FARTHEST;
-        var units = {
-            km: 1000.,
-            mi: 1609.344,
-            deg: antipode / 90.,
-        };
+        var FT_NM = .3048 / 1852.;
         var stops = {
             km: [.01, .03, .1, .3, 1, 3, 10, 30, 100, 300, 1000, 3000, 10000, 'antip'],
             mi: [50/5280., 150/5280., 500/5280., 1500/5280., 1, 3, 10, 30, 100, 300, 1000, 3000, 'antip'],
+            nmi: [60*FT_NM, 180*FT_NM, 600*FT_NM, 1800*FT_NM, 1, 3, 10, 30, 100, 300, 1000, 3000, 'antip'],
             deg: [1/3600., 1/1200., 1/360., 1/120., 1/60., 1/20., 1/6., .5, 1, 3, 10, 30, 'antip'],
         }
         $.each(PARAMS.yticks || stops[PARAMS.dist_unit], function(i, e) {
-            var dist = (e == 'antip' ? antipode : e * units[PARAMS.dist_unit]);
-            var is_antipode = Math.abs(dist - antipode) < 1e-6;
+            var dist = (e == 'antip' ? EARTH_ANTIPODE : e * UNITS[PARAMS.dist_unit]);
+            var is_antipode = Math.abs(dist - EARTH_ANTIPODE) < 1e-6;
             if (PARAMS.dist_unit == 'km') {
                 if (is_antipode) {
-                    var antip_units = dist / units[PARAMS.dist_unit];
+                    var antip_units = dist / UNITS[PARAMS.dist_unit];
                     var label = 'antipode (' + Math.round(antip_units) + ' km)'
                 } else if (e < 1.) {
                     var label = (1000. * e) + ' m';
@@ -153,12 +156,21 @@ function render() {
                 }
             } else if (PARAMS.dist_unit == 'mi') {
                 if (is_antipode) {
-                    var antip_units = dist / units[PARAMS.dist_unit];
+                    var antip_units = dist / UNITS[PARAMS.dist_unit];
                     var label = 'antipode (' + Math.round(antip_units) + ' mi)'
                 } else if (e < 1.) {
                     var label = Math.round(5280. * e) + ' ft';
                 } else {
                     var label = e + ' mi';
+                }
+            } else if (PARAMS.dist_unit == 'nmi') {
+                if (is_antipode) {
+                    var antip_units = dist / UNITS[PARAMS.dist_unit];
+                    var label = 'antipode (' + Math.round(antip_units) + ' nmi)'
+                } else if (e < 1.) {
+                    var label = Math.round(e / FT_NM / 3) + ' yd';
+                } else {
+                    var label = e + ' nmi';
                 }
             } else if (PARAMS.dist_unit == 'deg') {
                 var _bh = ' below horizon';
@@ -276,39 +288,45 @@ function setupMap(canv) {
         }
     };
 
+    var width = $canv.width();
+    var raw_width = Math.round(width * PARAMS.res / DATA.res);
+    var raw_offset = Math.round(fixmod(PARAMS.bear0 - DATA.range[0], 360.) / DATA.res);
+
     var MAX = Array($canv.width());
     var MIN = Array($canv.width());
-    for (var i = 0; i < DATA.postings.length; i++) {
-        var dist = DATA.postings[i][0];
-        var fpx = (i + .5) / DATA.postings.length * $canv.width();
+    for (var i = 0; i < raw_width; i++) {
+        var i_posting = fixmod(i + raw_offset, DATA.postings.length);
+        var dist = DATA.postings[i_posting][0];
+        var admin = DATA.admin_postings[i_posting];
+        var fpx = (i + .5) / raw_width * width;
         var px = Math.floor(fpx);
         if (MAX[px] === undefined || (dist > MAX[px][1])) {
-            MAX[px] = [fpx, dist];
+            MAX[px] = [fpx, dist, admin];
         }
         if (MIN[px] === undefined || (dist < MIN[px][1])) {
-            MIN[px] = [fpx, dist];
+            MIN[px] = [fpx, dist, admin];
         }
     }
 
-    MMTIMER = null;
     $canv.mousemove(function(e) {
-        if (MMTIMER != null) {
-            clearTimeout(MMTIMER);
-        }
-        MMTIMER = setTimeout(function() {
-            var x = e.pageX - $canv.offset().left;
-            //var y = e.pageY - $canv.offset().top;
+        var x = e.pageX - $canv.offset().left;
+        //var y = e.pageY - $canv.offset().top;
 
-            var xn = MIN[x][0] / $canv.width();
-            var dist = MIN[x][1];
-            var bearing = DATA.range[0] + DATA.lonspan * xn;
-
-            var target = line_plotter(DATA.origin, bearing)(dist);
-            console.log(target);
-            COMPANION.postMessage({
-                pos: target,
-            }, '*');
-        }, 100);
+        var bearing = PARAMS.bear0 + PARAMS.res * MIN[x][0];
+        var dist = MIN[x][1];
+        var admin = MIN[x][2];
+        var target = line_plotter(DATA.origin, bearing)(dist);
+        var unit = {label: PARAMS.dist_unit || 'km'};
+        unit.size = UNITS[unit.label];
+        COMPANION.postMessage({
+            pos: target,
+            bearing: bearing,
+            dist: dist,
+            unit: unit,
+            admin_code: admin,
+            admin_name: DATA.admin_info[admin].name,
+            color: DATA.colors[admin] + 1,
+        }, '*');
     });
 
     $(document).keydown(function(e) {
@@ -342,18 +360,34 @@ function init_companion() {
     L.control.layers(layers).addTo(map);
     map.addLayer(layers['gmap']);
 
+    MMTIMER = null;
+    LAST_MAP_MOVE = 0;
     window.addEventListener("message", function(e) {
         if (e.data.action) {
             map[{zoomin: 'zoomIn', zoomout: 'zoomOut'}[e.data.action]]();
         } else {
-            companion_update(map, e.data.pos);
+            $('#pos').text(fmt_ll(e.data.pos[0], 'NS', 2, 3) + ' ' + fmt_ll(e.data.pos[1], 'EW', 3, 3));
+            $('#relpos').text(fmt_ang(e.data.bearing, 3, 2) + ' \xd7 ' + (e.data.dist / e.data.unit.size).toFixed(2) + e.data.unit.label);
+            $('#admin').text(e.data.admin_code + ' \u2013 ' + e.data.admin_name);
+            $('#color').text(e.data.color);
+
+            var update = function() {
+                map.setView(e.data.pos);
+            };
+            if (MMTIMER != null) {
+                clearTimeout(MMTIMER);
+            }
+            var now = performance.now() / 1000;
+            if (now - LAST_MAP_MOVE > .4) {
+                update();
+                LAST_MAP_MOVE = now;
+            } else {
+                MMTIMER = setTimeout(update, 100);
+            }
         }
     }, false);
 }
 
-function companion_update(map, pos) {
-    map.setView(pos);
-}
 
 
 
@@ -364,3 +398,19 @@ function companion_update(map, pos) {
 function fixmod(a, b) {
     return ((a % b) + b) % b;
 }
+
+function npad(n, pad) {
+    var s = '' + n;
+    while (s.length < pad) {
+        s = '0' + s;
+    }
+    return s;
+}
+
+function fmt_ang(k, pad, prec) {
+    return npad(fixmod(k, 360.).toFixed(prec), prec + 1 + pad) + '\xb0';
+}
+
+function fmt_ll(k, dir, pad, prec) {
+    return dir[k >= 0 ? 0 : 1] + fmt_ang(Math.abs(k), pad, prec);
+};

@@ -1,8 +1,14 @@
+<!--
 <script src="//cdnjs.cloudflare.com/ajax/libs/knockout/3.1.0/knockout-min.js"></script>
 <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
 <script src="//cdnjs.cloudflare.com/ajax/libs/underscore.js/1.6.0/underscore-min.js"></script>
 <script src="jquery.js"></script>
 <script src="render.js"></script>
+-->
+
+<script src="/underscore-min-1.6.0.js"></script>
+<script src="/jquery.min-1.10.2.js"></script>
+<script src="/render.js"></script>
 
 <script src="//cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/leaflet.js"></script>
 <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.2/leaflet.css">
@@ -28,9 +34,25 @@ body {
   height: 100%;
 }
 
+#info {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  background: rgba(255, 255, 255, .6);
+  padding: .5em;
+  border-radius: .75em;
+  font-family: sans-serif;
+}
+
 </style>
 
 <div id="map"></div>
+<div id="info">
+  <div><span id="pos"></span></div>
+  <div><span id="relpos"></span></div>
+  <div><span id="admin"></span></div>
+  <div>color <span id="color"></span></div>
+</div>
 
 </body>
 </html>
