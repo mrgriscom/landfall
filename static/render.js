@@ -309,6 +309,10 @@ function setupMap(canv) {
     }
 
     $canv.mousemove(function(e) {
+        if (window.FREEZE) {
+            return;
+        }
+
         var x = e.pageX - $canv.offset().left;
         //var y = e.pageY - $canv.offset().top;
 
@@ -329,15 +333,25 @@ function setupMap(canv) {
         }, '*');
     });
 
+    register_keyboard(COMPANION);
+}
+
+function register_keyboard(w) {
     $(document).keydown(function(e) {
         if (e.which == 187) {
-            COMPANION.postMessage({action: 'zoomin'}, '*');
+            w.postMessage({action: 'zoomin'}, '*');
         } else if (e.which == 189) {
-            COMPANION.postMessage({action: 'zoomout'}, '*');
+            w.postMessage({action: 'zoomout'}, '*');
+        } else if (e.which == 32) {
+            FREEZE = true;
+        }
+    });
+    $(document).keyup(function(e) {
+        if (e.which == 32) {
+            FREEZE = false;
         }
     });
 }
-
 
 function init_companion() {
     var map = new L.Map('map', {
@@ -366,6 +380,10 @@ function init_companion() {
         if (e.data.action) {
             map[{zoomin: 'zoomIn', zoomout: 'zoomOut'}[e.data.action]]();
         } else {
+            if (window.FREEZE) {
+                return;
+            }
+
             $('#pos').text(fmt_ll(e.data.pos[0], 'NS', 2, 3) + ' ' + fmt_ll(e.data.pos[1], 'EW', 3, 3));
             $('#relpos').text(fmt_ang(e.data.bearing, 3, 2) + ' \xd7 ' + (e.data.dist / e.data.unit.size).toFixed(2) + e.data.unit.label);
             $('#admin').text(e.data.admin_code + ' \u2013 ' + e.data.admin_name);
@@ -386,6 +404,8 @@ function init_companion() {
             }
         }
     }, false);
+
+    register_keyboard(window);
 }
 
 
