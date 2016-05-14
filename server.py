@@ -142,7 +142,6 @@ class RenderHandler(web.RequestHandler):
         if dist_unit == 'none':
             dist_unit = None
 
-        # TODO nosubdiv should modify explicitly specified cc's in params
         params = {
             'dim': [width, height],
             'min_dist': min_dist,
@@ -162,6 +161,7 @@ class RenderHandler(web.RequestHandler):
             data = json.load(f)
         data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
         data['wraparound'] = (data['lonspan'] == 360.)
+        data['size'] = len(data['postings'])
 
         left = self.get_argument('left', '')
         left = float(left) if left else data['range'][0]
@@ -195,7 +195,6 @@ class RenderHandler(web.RequestHandler):
         self.render('render.html', data=data, params=params)
 
     def process_downsampling(self, data, bearres, min_downscale):
-        data['size'] = len(data['postings'])
         downscale = math.log(bearres / data['res'], 2)
         if downscale < 0:
             raise ValueError('rendering width greater than data size')
@@ -510,67 +509,123 @@ class RenderHandler(web.RequestHandler):
 
 class KmlHandler(web.RequestHandler):
     def get(self, tag):
-        return None
-
+        """ TODO
+        option for downsampling here too
         """
+
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
+        data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
+        data['wraparound'] = (data['lonspan'] == 360.)
+        data['size'] = len(data['postings'])
 
         def get_bearing(i):
             return data['range'][0] + float(i) * data['res']
 
-        def contiguous_segments():
-            start = 0
-            for i in xrange(1, data['size']):
-                j = (i + 1) % data['size']
-                if j == 0 and not data['wraparound']:
-                    break
-                dist_i = data['postings'][i]
-                dist_j = data['postings'][j]
-                quantum = min(dist_i, dist_j) * math.radians(data['res'])
-                if abs(dist_i - dist_j) >= 10. * quantum:
-                    yield (start, i)
-                    start = j
-            if data['wraparound']:
-                # shit, already yielded
+        def ix_offset(i, offset, size, wrap=None):
+            # wrap=None (default) = use wrap value of data
+            # wrap=T/F = force wrap mode
+            wrap = data['wraparound'] if wrap is None else wrap
+            j = i + offset
+            if wrap:
+                return j % size
             else:
-                yield (start, data['size'] - 1)
+                return j if 0 <= j < size else -1
 
+        def quantum(dist):
+            effective_radius = geodesy.EARTH_MEAN_RAD * abs(math.sin(dist / geodesy.EARTH_MEAN_RAD))
+            return effective_radius * math.radians(data['res'])
 
-        # wraparound or constrained
-        # split into contiguous segments (edges vs. centers)
-        # split by admin
-        # max # points
+        def _contig_segments():
+            DISCONT_THRESHOLD = 10
 
-        # discontinuities
-        # max ray length
+            segments = [];
+            segment = None
+            for i in xrange(data['size']):
+                inext = ix_offset(i, 1, data['size'])
+                if inext < 0:
+                    break
 
-        # mindist and bear limits
+                dist0 = data['postings'][i][0]
+                dist1 = data['postings'][inext][0]
+                hasdist0 = dist0 > 0
+                hasdist1 = dist1 > 0
+                discontinuity = False
+                if hasdist0 != hasdist1:
+                    discontinuity = True
+                elif hasdist0 and hasdist1:
+                    if abs(dist0 - dist1) > DISCONT_THRESHOLD * min(quantum(dist0), quantum(dist1)):
+                        discontinuity = True
 
-        # TODO(clean this up):
+                if i == 0:
+                    segment = {'start': 0}
+                if discontinuity:
+                    segment['end'] = i
+                    segments.append(segment)
+                    segment = {'start': inext}
+            if data['wraparound']:
+                if segments:
+                    segments[0]['start'] = segment['start']
+                else:
+                    # no transitions
+                    pass
+            else:
+                segment['end'] = data['size'] - 1
+                segments.append(segment)
+            return segments
+        contig_segments = _contig_segments()
 
-        antipode = (-data['origin'][0], geodesy.anglenorm(data['origin'][1] + 180.))
+        draw_segments = []
+        for i in xrange(len(contig_segments)):
+            seg = contig_segments[i]
+            if i == len(contig_segments) - 1 and not data['wraparound']:
+                break
+            nextseg = contig_segments[(i+1) % len(contig_segments)]
+            
+            dist0 = data['postings'][seg['end']][0]
+            dist1 = data['postings'][nextseg['start']][0]
+            if dist0 < 0:
+                dist0 = dist1 + 2*math.pi*geodesy.EARTH_MEAN_RAD
+            elif dist1 < 0:
+                dist1 = dist0 + 2*math.pi*geodesy.EARTH_MEAN_RAD
+            
+            bearing = get_bearing(nextseg['start'])
+            draw_segments.append({'color': '888888', 'postings': [(bearing, dist0), (bearing, dist1)]})
 
-        path = []
-        prevdist = None
-        for i, (dist, _) in enumerate(itertools.chain(data['postings'], [data['postings'][0]])):
-            if dist < 0:
-                dist = lf.EARTH_CIRCUMF - data['min_dist'] # TODO go all the way back to start but insert interstitial point
-            bear = data['range'][0] + i * data['res']
-            p = geodesy.plot(data['origin'], bear, dist)[0]
-            if prevdist is not None and (dist > lf.EARTH_FARTHEST) != (prevdist > lf.EARTH_FARTHEST):
-                path.append(antipode)
-            path.append(p)
-            prevdist = dist
+        contig_segments = filter(lambda seg: data['postings'][seg['start']][0] > 0, contig_segments)
+        for seg in contig_segments:
+            draw_segments.append({'color': 'ff0000', 'postings': [(get_bearing(i), data['postings'][i][0]) for i in xrange(seg['start'], seg['end']+1)]})
 
-        SEGSIZE = 1000
-        segments = [path[i:min(i+1+SEGSIZE, len(path))] for i in xrange(0, len(path), SEGSIZE)]
-        segments.append([geodesy.plot(data['origin'], bear, data['min_dist'])[0] for bear in xrange(0, 361, 5)])
+        #from pprint import pprint
+        #pprint(draw_segments)
+        #print len(draw_segments)
+
+        """
+        - split landfall into contiguous segments (dist delta cap between postings)
+          - filter null segments
+        - split segment into admins
+        - (edges vs. centers)
+        - total lines to draw:
+          - admin-segment
+          - jumps between segments (wraps whole earth if to null area)
+          - frustum
+            - min dist curve over lon range
+            - if not wraparound, bounds of viewshed to first landfall (if null area, wraps whole earth)
+        - for each segment:
+          - max spacing between points (1/4 circumf)
+          - max points per segment (1000?)
+          """
+
+        def project_segment(seg):
+            if len(seg['color']) == 6:
+                seg['color'] += 'ff'
+            kmlcolor = ''.join(reversed([seg['color'][2*k:2*(k+1)] for k in xrange(4)]))
+            return {'color': kmlcolor, 'postings': [geodesy.plot(data['origin'], bear, dist)[0] for (bear, dist) in seg['postings']]}
+        draw_segments = map(project_segment, draw_segments)
 
         self.set_header('Content-Type', 'application/vnd.google-earth.kml+xml')
         self.set_header('Content-Disposition', 'attachment; filename="landfall.kml"')
-        self.render('render.kml', segments=segments)
-"""
+        self.render('render.kml', segments=draw_segments)
 
 COLOR_CACHE = {}
 

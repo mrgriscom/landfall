@@ -3,10 +3,10 @@
 <Document><Folder><name>kml</name>
 {% for seg in segments %}
   <Placemark>
-	<Style><LineStyle><color>ff0000ff</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+	<Style><LineStyle><color>{{ seg['color'] }}</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
       <LineString><altitudeMode>clampToGround</altitudeMode><tessellate>1</tessellate>
 <coordinates>
-{% for p in seg %}
+{% for p in seg['postings'] %}
 {{ p[1] }},{{ p[0] }}
 {% end %}
 </coordinates></LineString>
