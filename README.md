@@ -118,7 +118,7 @@ Add them as url params to the `http://localhost:8000/render/`... url to use them
 - `min_downscale=<n>` -- the generated panorama data is downscaled for rendering to give a smoother appearance.
   However, if too much downscaling is used, tiny islands may become very faint and even lost.
   If more than `2^(n+1)` factor of downscaling is required, the source data is resampled first.
-  Basically, the minimum transparency of the tiniest island will be `100% / 2^(n+1)` (12.5% for the default value of 2).
+  Basically, the minimum opacity of the tiniest island will be `100% / 2^(n+1)` (12.5% for the default value of 2).
 
 ### Cropping and layout
 
