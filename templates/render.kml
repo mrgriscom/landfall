@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
-<Document><Folder><name>kml</name>
+<Document>
+<Placemark>
+  <name>vantage point</name>
+  <Point>
+    <coordinates>{{ origin[1] }},{{ origin[0] }},0</coordinates>
+  </Point>
+</Placemark>
+<Folder>
+<name>line segments</name>
 {% for seg in segments %}
   <Placemark>
 	<Style><LineStyle><color>{{ seg['color'] }}</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
@@ -12,4 +20,5 @@
 </coordinates></LineString>
   </Placemark>
 {% end %}
-</Folder></Document></kml>
+</Folder>
+</Document></kml>

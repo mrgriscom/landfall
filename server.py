@@ -504,9 +504,6 @@ class RenderHandler(web.RequestHandler):
             if colors[edge[0]] == colors[edge[1]]:
                 print edge, type
 
-
-
-
 class KmlHandler(web.RequestHandler):
     def get(self, tag):
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
@@ -572,18 +569,21 @@ class KmlHandler(web.RequestHandler):
         contig_segments = _contig_segments()
 
         draw_segments = []
+        BOUNDS_COLOR = '8866ff'
+        LANDFALL_COLOR = 'ff0066'
+        TANGENT_COLOR = 'aaaaff'
 
         near_dist = []
         for a in geodesy.rangea(3., data['range'][0], data['range'][1]):
             near_dist.append((a, data['min_dist']))
-        draw_segments.append({'color': '8888ff', 'postings': near_dist})
+        draw_segments.append({'color': BOUNDS_COLOR, 'postings': near_dist})
         if not data['wraparound']:
             for k in (0, data['size']):
                 dist = data['postings'][k if k == 0 else -1][0]
                 if dist < 0:
                     dist = 2*math.pi*geodesy.EARTH_MEAN_RAD
                 bearing = get_bearing(k)
-                draw_segments.append({'color': '8888ff', 'postings': [(bearing, data['min_dist']), (bearing, dist)]})
+                draw_segments.append({'color': BOUNDS_COLOR, 'postings': [(bearing, data['min_dist']), (bearing, dist)]})
 
         for i in xrange(len(contig_segments)):
             seg = contig_segments[i]
@@ -599,7 +599,7 @@ class KmlHandler(web.RequestHandler):
                 dist1 = dist0 + 2*math.pi*geodesy.EARTH_MEAN_RAD
             
             bearing = get_bearing(nextseg['start'])
-            draw_segments.append({'color': 'aaaaff', 'postings': [(bearing, dist0), (bearing, dist1)]})
+            draw_segments.append({'color': TANGENT_COLOR, 'postings': [(bearing, dist0), (bearing, dist1)]})
 
         contig_segments = filter(lambda seg: data['postings'][seg['start']][0] > 0, contig_segments)
         for seg in contig_segments:
@@ -617,7 +617,7 @@ class KmlHandler(web.RequestHandler):
                 postings.append((get_bearing(bi), data['postings'][ix][0]))
             if seg['start'] == seg['end']:
                 postings.append((get_bearing(seg['end'] + 1), data['postings'][seg['end']][0]))
-            draw_segments.append({'color': 'ff0066', 'postings': postings})
+            draw_segments.append({'color': LANDFALL_COLOR, 'postings': postings})
 
         def max_point_spacing(seg):
             MAX_SPACING = .5*math.pi*geodesy.EARTH_MEAN_RAD
@@ -652,7 +652,7 @@ class KmlHandler(web.RequestHandler):
 
         self.set_header('Content-Type', 'application/vnd.google-earth.kml+xml')
         self.set_header('Content-Disposition', 'attachment; filename="landfall.kml"')
-        self.render('render.kml', segments=draw_segments)
+        self.render('render.kml', segments=draw_segments, origin=data['origin'])
 
 COLOR_CACHE = {}
 
