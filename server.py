@@ -159,6 +159,7 @@ class RenderHandler(web.RequestHandler):
 
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
+        data['tag'] = os.path.splitext(tag)[0]
         data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
         data['wraparound'] = (data['lonspan'] == 360.)
         data['size'] = len(data['postings'])
@@ -369,6 +370,7 @@ class RenderHandler(web.RequestHandler):
         if seed is None:
             seed = hash(random.getstate())
         random.seed(seed)
+        params['random_seed'] = seed
         print 'random seed: %s' % seed
 
         def rand_color():

@@ -17,6 +17,12 @@ function init() {
     $('#map').click(function() {
         setupMap(canvas);
     });
+    $('#png').click(function() {
+        var timestamp = Math.floor(new Date().getTime() / 1000.);
+        var filename = DATA.tag + '_' + timestamp;
+        save_canvas(canvas, filename + '.png');
+        write_params(filename + '.params');
+    });
 }
 
 function render() {
@@ -506,4 +512,27 @@ function mk_geojson(data, scale_px) {
     }
     addMulti({name: 'line'}, lineplot(data.origin, data.bearing, data.dist, scale_px, 'end')); 
     return geojson;
+}
+
+
+
+
+
+function write_params(filename) {
+    var data = 'lonleft: ' + PARAMS.bear0 + '\nlonspan: ' + PARAMS.bearspan + '\nurl: ' + window.location.href + '\nrandom_seed: ' + PARAMS.random_seed + '\n';
+    var blob = new Blob([data], {type : 'text/plain'});
+    saveAs(blob, filename);
+}
+
+function save_canvas(canvas, filename) {
+    var dataurl = canvas.toDataURL();
+    var rawb64 = dataurl.substring(dataurl.indexOf(',')+1);
+    var raw = atob(rawb64);
+    var buf = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) {
+        buf[i] = raw.charCodeAt(i);
+    }
+
+    var blob = new Blob([buf], {type : 'image/png'});
+    saveAs(blob, filename);
 }
