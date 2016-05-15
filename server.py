@@ -651,6 +651,14 @@ class KmlHandler(web.RequestHandler):
             return {'color': kmlcolor, 'postings': [geodesy.plot(data['origin'], bear, dist)[0] for (bear, dist) in seg['postings']]}
         draw_segments = map(project_segment, draw_segments)
 
+        def max_segment_points(seg):
+            MAX_POINTS_PER_SEGMENT = 2000
+            num_subsegs = int(math.ceil((len(seg['postings']) - 1.) / (MAX_POINTS_PER_SEGMENT - 1.)))
+            for i in xrange(num_subsegs):
+                start = i * (MAX_POINTS_PER_SEGMENT - 1)
+                yield {'color': seg['color'], 'postings': seg['postings'][start:start+MAX_POINTS_PER_SEGMENT]}
+        draw_segments = list(itertools.chain(*map(max_segment_points, draw_segments)))
+
         self.set_header('Content-Type', 'application/vnd.google-earth.kml+xml')
         self.set_header('Content-Disposition', 'attachment; filename="landfall.kml"')
         self.render('render.kml', segments=draw_segments)
