@@ -537,7 +537,7 @@ class KmlHandler(web.RequestHandler):
             return effective_radius * math.radians(data['res'])
 
         def _contig_segments():
-            DISCONT_THRESHOLD = 10
+            DISCONT_THRESHOLD = 10 # ~5.7 deg
 
             segments = [];
             segment = None
@@ -576,6 +576,19 @@ class KmlHandler(web.RequestHandler):
         contig_segments = _contig_segments()
 
         draw_segments = []
+
+        near_dist = []
+        for a in geodesy.rangea(3., data['range'][0], data['range'][1]):
+            near_dist.append((a, data['min_dist']))
+        draw_segments.append({'color': '8888ff', 'postings': near_dist})
+        if not data['wraparound']:
+            for k in (0, data['size']):
+                dist = data['postings'][k if k == 0 else -1][0]
+                if dist < 0:
+                    dist = 2*math.pi*geodesy.EARTH_MEAN_RAD
+                bearing = get_bearing(k)
+                draw_segments.append({'color': '8888ff', 'postings': [(bearing, data['min_dist']), (bearing, dist)]})
+
         for i in xrange(len(contig_segments)):
             seg = contig_segments[i]
             if i == len(contig_segments) - 1 and not data['wraparound']:
@@ -590,31 +603,46 @@ class KmlHandler(web.RequestHandler):
                 dist1 = dist0 + 2*math.pi*geodesy.EARTH_MEAN_RAD
             
             bearing = get_bearing(nextseg['start'])
-            draw_segments.append({'color': '888888', 'postings': [(bearing, dist0), (bearing, dist1)]})
+            draw_segments.append({'color': 'aaaaff', 'postings': [(bearing, dist0), (bearing, dist1)]})
 
         contig_segments = filter(lambda seg: data['postings'][seg['start']][0] > 0, contig_segments)
         for seg in contig_segments:
-            draw_segments.append({'color': 'ff0000', 'postings': [(get_bearing(i), data['postings'][i][0]) for i in xrange(seg['start'], seg['end']+1)]})
-
-        #from pprint import pprint
-        #pprint(draw_segments)
-        #print len(draw_segments)
+            postings = []
+            def wrap_ix():
+                for i in xrange((seg['end'] - seg['start']) % data['size'] + 1):
+                    yield (seg['start'] + i) % data['size']
+            for ix in wrap_ix():
+                if ix == seg['start']:
+                    bi = ix
+                elif ix == seg['end']:
+                    bi = ix + 1
+                else:
+                    bi = ix + .5
+                postings.append((get_bearing(bi), data['postings'][ix][0]))
+            if seg['start'] == seg['end']:
+                postings.append((get_bearing(seg['end'] + 1), data['postings'][seg['end']][0]))
+            draw_segments.append({'color': 'ff0000', 'postings': postings})
 
         """
-        - split landfall into contiguous segments (dist delta cap between postings)
-          - filter null segments
         - split segment into admins
-        - (edges vs. centers)
-        - total lines to draw:
-          - admin-segment
-          - jumps between segments (wraps whole earth if to null area)
-          - frustum
-            - min dist curve over lon range
-            - if not wraparound, bounds of viewshed to first landfall (if null area, wraps whole earth)
-        - for each segment:
-          - max spacing between points (1/4 circumf)
-          - max points per segment (1000?)
+        - max points per segment (1000?)
           """
+
+        def max_point_spacing(seg):
+            MAX_SPACING = .5*math.pi*geodesy.EARTH_MEAN_RAD
+            postings = [seg['postings'][0]]
+            for i in xrange(len(seg['postings']) - 1):
+                a = seg['postings'][i]
+                b = seg['postings'][i + 1]
+                if a[0] != b[0]:
+                    postings.append(b)
+                    continue
+
+                for k in list(geodesy.rangef(0, abs(a[1] - b[1]), MAX_SPACING))[1:]:
+                    postings.append((b[0], a[1] + (1 if b[1] > a[1] else -1) * k))
+
+            return {'color': seg['color'], 'postings': postings}
+        draw_segments = map(max_point_spacing, draw_segments)
 
         def project_segment(seg):
             if len(seg['color']) == 6:
