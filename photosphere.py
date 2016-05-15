@@ -16,6 +16,7 @@ def write_proj_params(input_path, span, baseline):
     bottom_angle = math.degrees(math.atan(px_below / radius))
     proj_height = int(round((top_angle + bottom_angle) * width / span))
     top_offset = int(round((90. - top_angle) * width / span))
+    print 'vfov: %s' % (top_angle + bottom_angle)
 
     proj_path = tempfile.mktemp('.pto')
     with open(proj_path, 'w') as f:
