@@ -509,10 +509,6 @@ class RenderHandler(web.RequestHandler):
 
 class KmlHandler(web.RequestHandler):
     def get(self, tag):
-        """ TODO
-        option for downsampling here too
-        """
-
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
         data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
@@ -537,7 +533,7 @@ class KmlHandler(web.RequestHandler):
             return effective_radius * math.radians(data['res'])
 
         def _contig_segments():
-            DISCONT_THRESHOLD = 10 # ~5.7 deg
+            DISCONT_THRESHOLD = 1. / math.tan(math.radians(5.))
 
             segments = [];
             segment = None
@@ -621,12 +617,7 @@ class KmlHandler(web.RequestHandler):
                 postings.append((get_bearing(bi), data['postings'][ix][0]))
             if seg['start'] == seg['end']:
                 postings.append((get_bearing(seg['end'] + 1), data['postings'][seg['end']][0]))
-            draw_segments.append({'color': 'ff0000', 'postings': postings})
-
-        """
-        - split segment into admins
-        - max points per segment (1000?)
-          """
+            draw_segments.append({'color': 'ff0066', 'postings': postings})
 
         def max_point_spacing(seg):
             MAX_SPACING = .5*math.pi*geodesy.EARTH_MEAN_RAD
