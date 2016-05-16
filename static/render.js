@@ -206,7 +206,10 @@ function render() {
             fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
             fin.context.font = ylabel_fontsize + 'pt sans-serif';
             fin.context.textBaseline = (label_below ? 'top' : 'alphabetic');
-            fin.context.fillText(label, ylabel_x0 + ylabel_padding, y - (label_below ? -1 : 1) * ylabel_padding);
+            for (var i = 0; i < PARAMS.ylabelreps; i++) {
+                var x = width * i / PARAMS.ylabelreps + ylabel_x0;
+                fin.context.fillText(label, x + ylabel_padding, y - (label_below ? -1 : 1) * ylabel_padding);
+            }
         });
     }
     drawRules(true);

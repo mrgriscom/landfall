@@ -102,6 +102,7 @@ class RenderHandler(web.RequestHandler):
         yticks = self.get_argument('yticks', None)
         if yticks:
             yticks = [float(y) if y != 'antip' else y for y in yticks.split(',')]
+        ylabelreps = int(self.get_argument('ylabelrepeat', '1'))
 
         num_colors = int(self.get_argument('numcolors', '6'))
         hues = self.get_argument('hues', '')
@@ -155,6 +156,7 @@ class RenderHandler(web.RequestHandler):
             'random_seed': random_seed,
             'dist_unit': dist_unit,
             'yticks': yticks,
+            'ylabelreps': ylabelreps,
         }
 
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
