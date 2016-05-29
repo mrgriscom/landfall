@@ -396,7 +396,7 @@ class RenderHandler(web.RequestHandler):
         def energy_diff(colors, move):
             def node_diff_cost(node, newcolor, ignore=[]):
                 def node_cost(color):
-                    return sum(adjacency[(node, neighbor)] for neighbor in adjacent_to[node] if neighbor not in ignore and color == colors[neighbor])
+                    return sum(adjacency[(node, neighbor)] for neighbor in adjacent_to.get(node, []) if neighbor not in ignore and color == colors[neighbor])
                 return node_cost(newcolor) - node_cost(colors[node])
 
             if move[0] == 'change':
@@ -418,8 +418,7 @@ class RenderHandler(web.RequestHandler):
                 try:
                     pair = random.sample(color_keys, 2)
                 except ValueError:
-                    single_key = iter(color_keys).next()
-                    pair = (single_key, single_key)
+                    pair = (color_keys[0], color_keys[0])
                 return ('swap', pair[0], pair[1])
         def apply_move(colors, move):
             if move[0] == 'change':
