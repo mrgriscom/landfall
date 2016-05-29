@@ -406,7 +406,11 @@ class RenderHandler(web.RequestHandler):
                 return ('change', random.choice(color_keys), rand_color())
             else:
                 # swap colors
-                pair = random.sample(color_keys, 2) if len(color_keys) >= 2 else (0, 0)
+                try:
+                    pair = random.sample(color_keys, 2)
+                except ValueError:
+                    single_key = iter(color_keys).next()
+                    pair = (single_key, single_key)
                 return ('swap', pair[0], pair[1])
         def apply_move(colors, move):
             if move[0] == 'change':
@@ -426,47 +430,51 @@ class RenderHandler(web.RequestHandler):
         # failsafe to stop searching -- should normally terminate earlier by reaching a frozen state
         MIN_TEMPERATURE = 0.0001
 
-        # cooling amount per iteration
-        cooling_factor = COOLING_BASELINE**(AVG_NODES_TOUCHED_PER_MOVE / len(color_keys))
-
         # if no change to energy (within 'frozen_window') after this much relative temperature drop, terminate
         frozen_threshold = .9
         frozen_window = .5 # since all our costs are integers, just has to be less than 1
 
-        # set initial temperature where this proportion of worse moves are accepted (conventional wisdom suggests
-        # .5 but this problem space seems to converge well from a lower starting temperature)
-        init_worse_accept_p = .1
-
         current_energy = coloring_energy(colors)
+        if not color_keys:
+            # all colors assigned; abort immediately
+            temperature = 0
+        else:
+            # cooling amount per iteration
+            cooling_factor = COOLING_BASELINE**(AVG_NODES_TOUCHED_PER_MOVE / len(color_keys))
 
-        temp_baseline_iterations = 100
-        temp_baseline_failsafe_iterations = 1000
-        baselines = []
-        for i in xrange(temp_baseline_failsafe_iterations):
-            ediff = energy_diff(colors, gen_move())
-            if ediff > 0:
-                baselines.append(ediff)
-                if len(baselines) == temp_baseline_iterations:
-                    break
+            # set initial temperature where this proportion of worse moves are accepted (conventional wisdom suggests
+            # .5 but this problem space seems to converge well from a lower starting temperature)
+            init_worse_accept_p = .1
 
-        def intercept(fn, min, max, res):
-            mid = .5*(min + max)
-            if max - min < res:
-                return mid
-            elif fn(mid) < 0:
-                return intercept(fn, mid, max, res)
-            else:
-                return intercept(fn, min, mid, res)
-        def accept_rate(temp):
-            if baselines:
-                return sum(math.exp(-ediff / temp) for ediff in baselines) / len(baselines)
-            else:
-                return 0. # just a failsafe in case we can't get any worse examples to calibrate
-                          # which would imply the current state is pretty fucking bad, thus force
-                          # the temperature to the max possible. alternatively, the state space
-                          # may be very small, in which case the 'frozen' state will occur
-                          # immediately.
-        temperature = math.exp(intercept(lambda x: accept_rate(math.exp(x)) - init_worse_accept_p, 0., math.log(1e9), .1))
+            temp_baseline_iterations = 100
+            temp_baseline_failsafe_iterations = 1000
+            baselines = []
+            for i in xrange(temp_baseline_failsafe_iterations):
+                ediff = energy_diff(colors, gen_move())
+                if ediff > 0:
+                    baselines.append(ediff)
+                    if len(baselines) == temp_baseline_iterations:
+                        break
+
+            def intercept(fn, min, max, res):
+                mid = .5*(min + max)
+                if max - min < res:
+                    return mid
+                elif fn(mid) < 0:
+                    return intercept(fn, mid, max, res)
+                else:
+                    return intercept(fn, min, mid, res)
+            def accept_rate(temp):
+                if baselines:
+                    return sum(math.exp(-ediff / temp) for ediff in baselines) / len(baselines)
+                else:
+                    return 0. # just a failsafe in case we can't get any worse examples to calibrate
+                              # which would imply the current state is pretty fucking bad, thus force
+                              # the temperature to the max possible. alternatively, the state space
+                              # may be very small, in which case the 'frozen' state will occur
+                              # immediately.
+
+            temperature = math.exp(intercept(lambda x: accept_rate(math.exp(x)) - init_worse_accept_p, 0., math.log(1e9), .1))
         print 'init temperature:', temperature
 
         i = 0
