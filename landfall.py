@@ -172,7 +172,6 @@ class DepthBuffer(object):
 
     def fill(self, p, antip, areas, dist, bear, px, prev):
         # fill in intermediate points on the segment until we have a contiguous range of pixels
-        # TODO: could bail early if entire segment is out of bearing viewport
         prev_p, prev_dist, prev_bear, prev_px = prev
         adjacent = (abs(px - prev_px) <= 1 or
                     (min(px, prev_px) == 0 and max(px, prev_px) == self.max_px()))
@@ -190,6 +189,23 @@ class DepthBuffer(object):
         midp = geodesy.ecefu_to_ll(geodesy.vnorm(geodesy.vscale(geodesy.vadd(xyz0, xyz1), .5)))
 
         middist, midbear, midpx = self.project_point(midp, antip, areas)
+
+        # bail early if the entire segment is out of the viewport
+        # we need midpx first to know which direction it wraps around
+        if midpx == px or midpx == prev_px:
+            # can't tell wrap direction
+            in_viewport = True
+        else:
+            mid_to_prev = (prev_px - midpx) % self.max_px()
+            mid_to_cur = (px - midpx) % self.max_px()
+            if mid_to_prev > mid_to_cur:
+                px_start, px_end = prev_px, px
+            else:
+                px_start, px_end = px, prev_px
+            in_viewport = (px_start < self.size or px_start > px_end)
+        if not in_viewport:
+            return
+
         # the ordering of p, mid, and prev is important to maintain direction of coastline
         self.fill(p, antip, areas, dist, bear, px, (midp, middist, midbear, midpx))
         self.fill(midp, antip, areas, middist, midbear, midpx, prev)
