@@ -195,6 +195,8 @@ class RenderHandler(web.RequestHandler):
         self.process_downsampling(data, params['res'], min_downscale)
         self.process_admins(data, params)
 
+        # send to client as string or else js will lose precision
+        params['random_seed'] = str(params['random_seed'])
         self.render('render.html', data=data, params=params)
 
     def process_downsampling(self, data, bearres, min_downscale):
