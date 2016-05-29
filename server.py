@@ -90,6 +90,11 @@ class OutputListHandler(web.RequestHandler):
 # TODO panorama exif
 
 class RenderHandler(web.RequestHandler):
+    DEFAULT_ANNOTATIONS = {
+        'osm': u'data \xa9 OpenStreetMap contributors',
+        'mrgris': 'mrgris.com/projects/landfall',
+    }
+
     def get(self, tag):
         width = int(self.get_argument('width', '3000'))
         height = int(self.get_argument('height', '800'))
@@ -103,6 +108,8 @@ class RenderHandler(web.RequestHandler):
         if yticks:
             yticks = [float(y) if y != 'antip' else y for y in yticks.split(',')]
         ylabelreps = int(self.get_argument('ylabelrepeat', '1'))
+        annot1 = self.get_argument('attrib1', self.DEFAULT_ANNOTATIONS['osm'])
+        annot2 = self.get_argument('attrib2', self.DEFAULT_ANNOTATIONS['mrgris'])
 
         num_colors = int(self.get_argument('numcolors', '6'))
         hues = self.get_argument('hues', '')
@@ -157,6 +164,8 @@ class RenderHandler(web.RequestHandler):
             'dist_unit': dist_unit,
             'yticks': yticks,
             'ylabelreps': ylabelreps,
+            'primary_annotation': annot1,
+            'secondary_annotation': annot2,
         }
 
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:

@@ -269,10 +269,15 @@ function render() {
     }
 
     fin.context.fillStyle = 'rgba(0, 0, 0, .6)';
-    fin.context.textAlign = 'left';
     fin.context.font = '10pt sans-serif';
     fin.context.rotate(-.5*Math.PI);
-    fin.context.fillText('data \xa9 OpenStreetMap contributors', -height + 35, width - 5);
+
+    fin.context.textAlign = 'left';
+    fin.context.fillText(PARAMS.primary_annotation, -height + 35, width - 5);
+
+    fin.context.textAlign = 'right';
+    fin.context.fillText(PARAMS.secondary_annotation, -5, width - 5);
+
     fin.context.rotate(.5*Math.PI);
 
     return fin.canvas;

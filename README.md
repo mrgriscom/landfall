@@ -116,6 +116,14 @@ Add them as url params to the `http://localhost:8000/render/`... url to use them
   Comma-separated list of numbers in the current axis unit.
   The string `antip` may also be used in lieu of a number to designate the distance to antipode.
 - `ylabelrepeat=<n>` -- repeat the y-axis labels `<n>` times across the width of the image
+- `attrib1=<text>` -- attribution text for the lower-right corner.
+  Defaults to OpenStreetMap attribution.
+  Set to empty text to remove.
+  **OpenStreetMap attribution is required** in some form for publicly released images.
+- `attrib2=<text>` -- attribution text for the upper-right corner.
+  Defaults to attribution for this project.
+  Set to empty text to remove.
+  Public attribution is appreciated.
 - `min_downscale=<n>` -- the generated panorama data is downscaled for rendering to give a smoother appearance.
   However, if too much downscaling is used, tiny islands may become very faint and even lost.
   If more than `2^(n+1)` factor of downscaling is required, the source data is resampled first.
