@@ -527,7 +527,7 @@ function mk_geojson(data, scale_px) {
 
 
 function write_params(filename) {
-    var data = 'lonleft: ' + PARAMS.bear0 + '\nlonspan: ' + PARAMS.bearspan + '\nurl: ' + window.location.href + '\nrandom_seed: ' + PARAMS.random_seed + '\n';
+    var data = 'origin: ' + DATA.origin[0] + ',' + DATA.origin[1] + '\nmindist: ' + DATA.min_dist + '\nlonleft: ' + PARAMS.bear0 + '\nlonspan: ' + PARAMS.bearspan + '\nurl: ' + window.location.href + '\nrandom_seed: ' + PARAMS.random_seed + '\n';
     var blob = new Blob([data], {type : 'text/plain'});
     saveAs(blob, filename);
 }
