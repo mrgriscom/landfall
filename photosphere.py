@@ -65,6 +65,25 @@ def make_photosphere(final_out, proj_out, crop_top, span, left):
             f.write('set Xmp.GPano.%s XmpText %s\n' % (k, v))
     subprocess.check_call(['exiv2', '-m', xmp_path, final_out])
 
+def geo_tag(lat, lon, path):
+    # offset slightly from pole so bearings still work as expected
+    POLE_MARGIN = 1e-5
+    POLE_THRESH_LAT = 90. - POLE_MARGIN
+    if lat > POLE_THRESH_LAT:
+        lat, lon = POLE_THRESH_LAT, 180.
+    elif lat < -POLE_THRESH_LAT:
+        lat, lon = -POLE_THRESH_LAT, 0.
+        
+    ns = 'N' if lat >= 0 else 'S'
+    ew = 'E' if lon >= 0 else 'W'
+    args = {
+        'GPSLatitudeRef': ns,
+        'GPSLatitude': abs(lat),
+        'GPSLongitudeRef': ew,
+        'GPSLongitude': abs(lon),
+    }
+    subprocess.check_call(['exiftool', '-overwrite_original'] + ['-%s=%s' % (k, v) for k, v in args.iteritems()] + [path])
+
 def load_params(path):
     with open(path) as f:
         lines = filter(None, f.read().split('\n'))
@@ -91,11 +110,13 @@ if __name__ == "__main__":
     output_path = options.output or (os.path.splitext(input_pano)[0] + '.photosphere.jpg')
 
     params = load_params(params_path)
+    lat, lon = map(float, params['origin'].split(','))
     left = float(params['lonleft'])
     span = float(params['lonspan'])
     assert span <= 360., 'cannot make photosphere with lonspan > 360'
 
     proj_out, crop_top = reproject(input_pano, span, options.baseline, options.bgcolor)
     make_photosphere(output_path, proj_out, crop_top, span, left)
+    geo_tag(lat, lon, output_path)
 
     print output_path
