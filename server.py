@@ -530,152 +530,167 @@ class KmlHandler(web.RequestHandler):
     def get(self, tag):
         with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
             data = json.load(f)
-        data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
-        data['wraparound'] = (data['lonspan'] == 360.)
-        data['size'] = len(data['postings'])
+        segments = vector_segments(data)
 
-        def get_bearing(i):
-            return data['range'][0] + float(i) * data['res']
-
-        def ix_offset(i, offset, size, wrap=None):
-            # wrap=None (default) = use wrap value of data
-            # wrap=T/F = force wrap mode
-            wrap = data['wraparound'] if wrap is None else wrap
-            j = i + offset
-            if wrap:
-                return j % size
-            else:
-                return j if 0 <= j < size else -1
-
-        def quantum(dist):
-            effective_radius = geodesy.EARTH_MEAN_RAD * abs(math.sin(dist / geodesy.EARTH_MEAN_RAD))
-            return effective_radius * math.radians(data['res'])
-
-        def _contig_segments():
-            DISCONT_THRESHOLD = 1. / math.tan(math.radians(5.))
-
-            segments = [];
-            segment = None
-            for i in xrange(data['size']):
-                inext = ix_offset(i, 1, data['size'])
-                if inext < 0:
-                    break
-
-                dist0 = data['postings'][i][0]
-                dist1 = data['postings'][inext][0]
-                hasdist0 = dist0 > 0
-                hasdist1 = dist1 > 0
-                discontinuity = False
-                if hasdist0 != hasdist1:
-                    discontinuity = True
-                elif hasdist0 and hasdist1:
-                    if abs(dist0 - dist1) > DISCONT_THRESHOLD * min(quantum(dist0), quantum(dist1)):
-                        discontinuity = True
-
-                if i == 0:
-                    segment = {'start': 0}
-                if discontinuity:
-                    segment['end'] = i
-                    segments.append(segment)
-                    segment = {'start': inext}
-            if data['wraparound']:
-                if segments:
-                    segments[0]['start'] = segment['start']
-                else:
-                    # no transitions
-                    pass
-            else:
-                segment['end'] = data['size'] - 1
-                segments.append(segment)
-            return segments
-        contig_segments = _contig_segments()
-
-        draw_segments = []
         BOUNDS_COLOR = '8866ff'
         LANDFALL_COLOR = 'ff0066'
         TANGENT_COLOR = 'aaaaff'
 
-        near_dist = []
-        for a in geodesy.rangea(3., data['range'][0], data['range'][1]):
-            near_dist.append((a, data['min_dist']))
-        draw_segments.append({'color': BOUNDS_COLOR, 'postings': near_dist})
-        if not data['wraparound']:
-            for k in (0, data['size']):
-                dist = data['postings'][k if k == 0 else -1][0]
-                if dist < 0:
-                    dist = 2*math.pi*geodesy.EARTH_MEAN_RAD
-                bearing = get_bearing(k)
-                draw_segments.append({'color': BOUNDS_COLOR, 'postings': [(bearing, data['min_dist']), (bearing, dist)]})
-
-        for i in xrange(len(contig_segments)):
-            seg = contig_segments[i]
-            if i == len(contig_segments) - 1 and not data['wraparound']:
-                break
-            nextseg = contig_segments[(i+1) % len(contig_segments)]
-            
-            dist0 = data['postings'][seg['end']][0]
-            dist1 = data['postings'][nextseg['start']][0]
-            if dist0 < 0:
-                dist0 = dist1 + 2*math.pi*geodesy.EARTH_MEAN_RAD
-            elif dist1 < 0:
-                dist1 = dist0 + 2*math.pi*geodesy.EARTH_MEAN_RAD
-            
-            bearing = get_bearing(nextseg['start'])
-            draw_segments.append({'color': TANGENT_COLOR, 'postings': [(bearing, dist0), (bearing, dist1)]})
-
-        contig_segments = filter(lambda seg: data['postings'][seg['start']][0] > 0, contig_segments)
-        for seg in contig_segments:
-            postings = []
-            def wrap_ix():
-                for i in xrange((seg['end'] - seg['start']) % data['size'] + 1):
-                    yield (seg['start'] + i) % data['size']
-            for ix in wrap_ix():
-                if ix == seg['start']:
-                    bi = ix
-                elif ix == seg['end']:
-                    bi = ix + 1
-                else:
-                    bi = ix + .5
-                postings.append((get_bearing(bi), data['postings'][ix][0]))
-            if seg['start'] == seg['end']:
-                postings.append((get_bearing(seg['end'] + 1), data['postings'][seg['end']][0]))
-            draw_segments.append({'color': LANDFALL_COLOR, 'postings': postings})
-
-        def max_point_spacing(seg):
-            MAX_SPACING = .5*math.pi*geodesy.EARTH_MEAN_RAD
-            postings = [seg['postings'][0]]
-            for i in xrange(len(seg['postings']) - 1):
-                a = seg['postings'][i]
-                b = seg['postings'][i + 1]
-                if a[0] != b[0]:
-                    postings.append(b)
-                    continue
-
-                for k in list(geodesy.rangef(0, abs(a[1] - b[1]), MAX_SPACING))[1:]:
-                    postings.append((b[0], a[1] + (1 if b[1] > a[1] else -1) * k))
-
-            return {'color': seg['color'], 'postings': postings}
-        draw_segments = map(max_point_spacing, draw_segments)
-
-        def project_segment(seg):
-            if len(seg['color']) == 6:
-                seg['color'] += 'ff'
-            kmlcolor = ''.join(reversed([seg['color'][2*k:2*(k+1)] for k in xrange(4)]))
-            return {'color': kmlcolor, 'postings': [geodesy.plot(data['origin'], bear, dist)[0] for (bear, dist) in seg['postings']]}
-        draw_segments = map(project_segment, draw_segments)
-
-        def max_segment_points(seg):
-            MAX_POINTS_PER_SEGMENT = 2000
-            num_subsegs = int(math.ceil((len(seg['postings']) - 1.) / (MAX_POINTS_PER_SEGMENT - 1.)))
-            for i in xrange(num_subsegs):
-                start = i * (MAX_POINTS_PER_SEGMENT - 1)
-                yield {'color': seg['color'], 'postings': seg['postings'][start:start+MAX_POINTS_PER_SEGMENT]}
-        draw_segments = list(itertools.chain(*map(max_segment_points, draw_segments)))
+        def set_color(seg):
+            color = {
+                'bounds': BOUNDS_COLOR,
+                'tangent': TANGENT_COLOR,
+                'landfall': LANDFALL_COLOR,
+            }[seg['style']]
+            if len(color) == 6:
+                color += 'ff'
+            kmlcolor = ''.join(reversed([color[2*k:2*(k+1)] for k in xrange(4)]))
+            return {'color': kmlcolor, 'postings': seg['postings']}
+        segments = map(set_color, segments)
 
         self.set_header('Content-Type', 'application/vnd.google-earth.kml+xml')
         self.set_header('Content-Disposition', 'attachment; filename="landfall.kml"')
-        self.render('render.kml', segments=draw_segments, origin=data['origin'])
+        self.render('render.kml', segments=segments, origin=data['origin'])
 
+def vector_segments(data):
+    data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
+    data['wraparound'] = (data['lonspan'] == 360.)
+    data['size'] = len(data['postings'])
+
+    def get_bearing(i):
+        return data['range'][0] + float(i) * data['res']
+
+    def ix_offset(i, offset, size, wrap=None):
+        # wrap=None (default) = use wrap value of data
+        # wrap=T/F = force wrap mode
+        wrap = data['wraparound'] if wrap is None else wrap
+        j = i + offset
+        if wrap:
+            return j % size
+        else:
+            return j if 0 <= j < size else -1
+
+    def quantum(dist):
+        effective_radius = geodesy.EARTH_MEAN_RAD * abs(math.sin(dist / geodesy.EARTH_MEAN_RAD))
+        return effective_radius * math.radians(data['res'])
+
+    def _contig_segments():
+        DISCONT_THRESHOLD = 1. / math.tan(math.radians(5.))
+
+        segments = [];
+        segment = None
+        for i in xrange(data['size']):
+            inext = ix_offset(i, 1, data['size'])
+            if inext < 0:
+                break
+
+            dist0 = data['postings'][i][0]
+            dist1 = data['postings'][inext][0]
+            hasdist0 = dist0 > 0
+            hasdist1 = dist1 > 0
+            discontinuity = False
+            if hasdist0 != hasdist1:
+                discontinuity = True
+            elif hasdist0 and hasdist1:
+                if abs(dist0 - dist1) > DISCONT_THRESHOLD * min(quantum(dist0), quantum(dist1)):
+                    discontinuity = True
+
+            if i == 0:
+                segment = {'start': 0}
+            if discontinuity:
+                segment['end'] = i
+                segments.append(segment)
+                segment = {'start': inext}
+        if data['wraparound']:
+            if segments:
+                segments[0]['start'] = segment['start']
+            else:
+                # no transitions
+                pass
+        else:
+            segment['end'] = data['size'] - 1
+            segments.append(segment)
+        return segments
+    contig_segments = _contig_segments()
+
+    draw_segments = []
+
+    near_dist = []
+    for a in geodesy.rangea(3., data['range'][0], data['range'][1]):
+        near_dist.append((a, data['min_dist']))
+    draw_segments.append({'style': 'bounds', 'postings': near_dist})
+    if not data['wraparound']:
+        for k in (0, data['size']):
+            dist = data['postings'][k if k == 0 else -1][0]
+            if dist < 0:
+                dist = 2*math.pi*geodesy.EARTH_MEAN_RAD
+            bearing = get_bearing(k)
+            draw_segments.append({'style': 'bounds', 'postings': [(bearing, data['min_dist']), (bearing, dist)]})
+
+    for i in xrange(len(contig_segments)):
+        seg = contig_segments[i]
+        if i == len(contig_segments) - 1 and not data['wraparound']:
+            break
+        nextseg = contig_segments[(i+1) % len(contig_segments)]
+        
+        dist0 = data['postings'][seg['end']][0]
+        dist1 = data['postings'][nextseg['start']][0]
+        if dist0 < 0:
+            dist0 = dist1 + 2*math.pi*geodesy.EARTH_MEAN_RAD
+        elif dist1 < 0:
+            dist1 = dist0 + 2*math.pi*geodesy.EARTH_MEAN_RAD
+        
+        bearing = get_bearing(nextseg['start'])
+        draw_segments.append({'style': 'tangent', 'postings': [(bearing, dist0), (bearing, dist1)]})
+
+    contig_segments = filter(lambda seg: data['postings'][seg['start']][0] > 0, contig_segments)
+    for seg in contig_segments:
+        postings = []
+        def wrap_ix():
+            for i in xrange((seg['end'] - seg['start']) % data['size'] + 1):
+                yield (seg['start'] + i) % data['size']
+        for ix in wrap_ix():
+            if ix == seg['start']:
+                bi = ix
+            elif ix == seg['end']:
+                bi = ix + 1
+            else:
+                bi = ix + .5
+            postings.append((get_bearing(bi), data['postings'][ix][0]))
+        if seg['start'] == seg['end']:
+            postings.append((get_bearing(seg['end'] + 1), data['postings'][seg['end']][0]))
+        draw_segments.append({'style': 'landfall', 'postings': postings})
+
+    def max_point_spacing(seg):
+        MAX_SPACING = .5*math.pi*geodesy.EARTH_MEAN_RAD
+        postings = [seg['postings'][0]]
+        for i in xrange(len(seg['postings']) - 1):
+            a = seg['postings'][i]
+            b = seg['postings'][i + 1]
+            if a[0] != b[0]:
+                postings.append(b)
+                continue
+
+            for k in list(geodesy.rangef(0, abs(a[1] - b[1]), MAX_SPACING))[1:]:
+                postings.append((b[0], a[1] + (1 if b[1] > a[1] else -1) * k))
+
+        return {'style': seg['style'], 'postings': postings}
+    draw_segments = map(max_point_spacing, draw_segments)
+
+    def project_segment(seg):
+        return {'style': seg['style'], 'postings': [geodesy.plot(data['origin'], bear, dist)[0] for (bear, dist) in seg['postings']]}
+    draw_segments = map(project_segment, draw_segments)
+
+    def max_segment_points(seg):
+        MAX_POINTS_PER_SEGMENT = 2000
+        num_subsegs = int(math.ceil((len(seg['postings']) - 1.) / (MAX_POINTS_PER_SEGMENT - 1.)))
+        for i in xrange(num_subsegs):
+            start = i * (MAX_POINTS_PER_SEGMENT - 1)
+            yield {'style': seg['style'], 'postings': seg['postings'][start:start+MAX_POINTS_PER_SEGMENT]}
+    draw_segments = list(itertools.chain(*map(max_segment_points, draw_segments)))
+
+    return draw_segments
+        
 COLOR_CACHE = {}
 
 def color_ramp(hue, lummin, lummax, satmin, satmax, num_steps=1000):
