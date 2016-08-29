@@ -562,17 +562,45 @@ class GeojsonHandler(web.RequestHandler):
         origin = tuple(reversed(data['origin']))
         segments = vector_segments(data)
 
+        fragments = []
+        for seg in segments:
+            for a, b in pairwise_postings(seg['postings']):
+                lon0 = min(a[1], b[1])
+                lon1 = max(a[1], b[1])
+                if abs(lon1 - lon0) < 180:
+                    fragments.append((lon0, lon1))
+                else:
+                    fragments.append((lon1, 180))
+                    fragments.append((-180, lon0))
+        fragments.sort()
+        gaps = []
+        frontier = -180
+        for f in fragments:
+            if f[0] > frontier:
+                gaps.append((frontier, f[0]))
+            frontier = max(frontier, f[1])
+        if frontier < 180:
+            if gaps[0][0] == -180:
+                gaps[0] = (frontier - 360, gaps[0][1])
+            else:
+                gaps.append(frontier, 180)
+        if not gaps:
+            duplicate = True
+        else:
+            duplicate = False
+            biggest_gap = max(gaps, key=lambda e: e[1] - e[0])
+            center = geodesy.anglenorm(.5*sum(biggest_gap) + 180)
+        
         segments = transform_segments(segments, partial(make_mercator_safe, tolerance=100))
-
-        DUPLICATE = bool(self.get_argument('dup', ''))
-        if DUPLICATE:
+        
+        if duplicate:
             origins = [(origin[0] + 360*i, origin[1]) for i in xrange(-1, 2)]
             duplicated_segments = split_segments(segments, partial(clip_to_window, lon_center=data['origin'][1] - 180))
             duplicated_segments.extend(split_segments(segments, partial(clip_to_window, lon_center=data['origin'][1] + 180)))
             segments = duplicated_segments
         else:
-            origins = [origin]
-            segments = split_segments(segments, partial(clip_to_window, lon_center=data['origin'][1]))
+            origins = [(geodesy.anglenorm(origin[0], 180 - center), origin[1])]
+            segments = split_segments(segments, partial(clip_to_window, lon_center=center))
             
         def color_for_style(style):
             BOUNDS_COLOR = '8866ff'
