@@ -6,5 +6,6 @@
 {{ output['width'] }}px
 {{ output['range'] }}
 <a href="{{ reverse_url('kml', output['file']) }}">(kml)</a>
+<a href="{{ reverse_url('geojson', output['file']) }}">(geojson)</a>
 </div>
 {% end %}

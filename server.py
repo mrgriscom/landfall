@@ -22,6 +22,7 @@ import process_data as pd
 import random
 import math
 import util as u
+from functools import partial
 
 from munsell import munsell as m
 m.init()
@@ -532,16 +533,18 @@ class KmlHandler(web.RequestHandler):
             data = json.load(f)
         segments = vector_segments(data)
 
-        BOUNDS_COLOR = '8866ff'
-        LANDFALL_COLOR = 'ff0066'
-        TANGENT_COLOR = 'aaaaff'
-
-        def set_color(seg):
-            color = {
+        def color_for_style(style):
+            BOUNDS_COLOR = '8866ff'
+            LANDFALL_COLOR = 'ff0066'
+            TANGENT_COLOR = 'aaaaff'
+            return {
                 'bounds': BOUNDS_COLOR,
                 'tangent': TANGENT_COLOR,
                 'landfall': LANDFALL_COLOR,
-            }[seg['style']]
+            }[style]
+
+        def set_color(seg):
+            color = color_for_style(seg['style'])
             if len(color) == 6:
                 color += 'ff'
             kmlcolor = ''.join(reversed([color[2*k:2*(k+1)] for k in xrange(4)]))
@@ -551,7 +554,73 @@ class KmlHandler(web.RequestHandler):
         self.set_header('Content-Type', 'application/vnd.google-earth.kml+xml')
         self.set_header('Content-Disposition', 'attachment; filename="landfall.kml"')
         self.render('render.kml', segments=segments, origin=data['origin'])
+        
+class GeojsonHandler(web.RequestHandler):
+    def get(self, tag):
+        with open(os.path.join(config.OUTPUT_PATH, tag)) as f:
+            data = json.load(f)
+        origin = tuple(reversed(data['origin']))
+        segments = vector_segments(data)
 
+        segments = transform_segments(segments, partial(make_mercator_safe, tolerance=100))
+
+        DUPLICATE = bool(self.get_argument('dup', ''))
+        if DUPLICATE:
+            origins = [(origin[0] + 360*i, origin[1]) for i in xrange(-1, 2)]
+            duplicated_segments = split_segments(segments, partial(clip_to_window, lon_center=data['origin'][1] - 180))
+            duplicated_segments.extend(split_segments(segments, partial(clip_to_window, lon_center=data['origin'][1] + 180)))
+            segments = duplicated_segments
+        else:
+            origins = [origin]
+            segments = split_segments(segments, partial(clip_to_window, lon_center=data['origin'][1]))
+            
+        def color_for_style(style):
+            BOUNDS_COLOR = '8866ff'
+            LANDFALL_COLOR = 'ff0066'
+            TANGENT_COLOR = 'ffffaa'
+            return {
+                'bounds': (BOUNDS_COLOR, 1.),
+                'tangent': (TANGENT_COLOR, .5),
+                'landfall': (LANDFALL_COLOR, 1.),
+            }[style]
+
+        def to_feature(segment):
+            coords = [(lon, lat) for lat, lon in segment['postings']]
+            color, opacity = color_for_style(segment['style'])
+            return {
+                "type": "Feature",
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": coords,
+                },
+                "properties": {
+                    "stroke": '#%s' % color,
+                    "stroke-opacity": opacity,
+                    "stroke-width": 1,
+                },
+            }
+
+        def make_origin(o):
+            return {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": o,
+                },
+                "properties": {
+                    "title": "vantage point"
+                },
+            }
+        
+        geojson = {
+            "type": "FeatureCollection",
+            "features": map(make_origin, origins) + map(to_feature, segments),
+        }
+
+        self.set_header('Access-Control-Allow-Origin', '*')        
+        self.set_header('Content-Disposition', 'attachment; filename="landfall.geojson"')
+        self.write(geojson)
+        
 def vector_segments(data):
     data['lonspan'] = (data['range'][1] - data['range'][0]) % 360. or 360.
     data['wraparound'] = (data['lonspan'] == 360.)
@@ -661,36 +730,109 @@ def vector_segments(data):
             postings.append((get_bearing(seg['end'] + 1), data['postings'][seg['end']][0]))
         draw_segments.append({'style': 'landfall', 'postings': postings})
 
-    def max_point_spacing(seg):
+    def max_point_spacing(seg_postings):
         MAX_SPACING = .5*math.pi*geodesy.EARTH_MEAN_RAD
-        postings = [seg['postings'][0]]
-        for i in xrange(len(seg['postings']) - 1):
-            a = seg['postings'][i]
-            b = seg['postings'][i + 1]
+        yield seg_postings[0]
+        for a, b in pairwise_postings(seg_postings):
             if a[0] != b[0]:
-                postings.append(b)
+                yield b
                 continue
-
             for k in list(geodesy.rangef(0, abs(a[1] - b[1]), MAX_SPACING))[1:]:
-                postings.append((b[0], a[1] + (1 if b[1] > a[1] else -1) * k))
+                yield (b[0], a[1] + (1 if b[1] > a[1] else -1) * k)
+    draw_segments = transform_segments(draw_segments, max_point_spacing)
 
-        return {'style': seg['style'], 'postings': postings}
-    draw_segments = map(max_point_spacing, draw_segments)
+    def project_segment(postings):
+        return [geodesy.plot(data['origin'], bear, dist)[0] for (bear, dist) in postings]
+    draw_segments = transform_segments(draw_segments, project_segment)
 
-    def project_segment(seg):
-        return {'style': seg['style'], 'postings': [geodesy.plot(data['origin'], bear, dist)[0] for (bear, dist) in seg['postings']]}
-    draw_segments = map(project_segment, draw_segments)
-
-    def max_segment_points(seg):
+    def max_segment_points(postings):
         MAX_POINTS_PER_SEGMENT = 2000
-        num_subsegs = int(math.ceil((len(seg['postings']) - 1.) / (MAX_POINTS_PER_SEGMENT - 1.)))
+        num_subsegs = int(math.ceil((len(postings) - 1.) / (MAX_POINTS_PER_SEGMENT - 1.)))
         for i in xrange(num_subsegs):
             start = i * (MAX_POINTS_PER_SEGMENT - 1)
-            yield {'style': seg['style'], 'postings': seg['postings'][start:start+MAX_POINTS_PER_SEGMENT]}
-    draw_segments = list(itertools.chain(*map(max_segment_points, draw_segments)))
+            yield postings[start:start+MAX_POINTS_PER_SEGMENT]
+    draw_segments = split_segments(draw_segments, max_segment_points)
 
     return draw_segments
+
+def pairwise_postings(postings):
+    for i in xrange(len(postings) - 1):
+        yield (postings[i], postings[i + 1])
+
+def copy_segment(segment, new_postings):
+    new_seg = dict(segment)
+    new_seg['postings'] = new_postings
+    return new_seg
+
+def transform_segments(segments, transform):
+    return map(lambda seg: copy_segment(seg, list(transform(seg['postings']))), segments)
+
+def split_segments(segments, split):
+    def split_segment(segment):
+        for postings in split(segment['postings']):
+            yield copy_segment(segment, postings)
+    return list(itertools.chain(*map(split_segment, segments)))
+
+def clip_to_window(postings, lon_center):
+    tx = lambda p: (p[0], geodesy.anglenorm(p[1], 180. - lon_center))
+    segment = [tx(postings[0])]
+    for a, b in pairwise_postings(postings):
+        last_p = segment[-1]
+        p = tx(b)
+        if abs(p[1] - last_p[1]) > 180.:
+            dir = (-1 if last_p[1] < lon_center else 1)
+            cross_in = lon_center + 180 * dir
+            cross_out = lon_center - 180 * dir
+            midlat = last_p[0] + (p[0] - last_p[0]) * (cross_in - last_p[1]) / (geodesy.anglenorm(p[1], 180 - last_p[1]) - last_p[1])
+            segment.append((midlat, cross_in))
+            yield segment
+            segment = [(midlat, cross_out)]
+        segment.append(p)
+    yield segment
+
+def mercator_safe_linear_segment(start, end, tolerance):
+    def midpoint(a, b):
+        xyza = geodesy.ll_to_ecefu(a)
+        xyzb = geodesy.ll_to_ecefu(b)
+        xyzmid = geodesy.vnorm(geodesy.vadd(xyza, xyzb))
+        return geodesy.ecefu_to_ll(xyzmid)
+
+    def merc_midpoint(a, b):
+        merca = math.log(math.tan(math.pi/4 + math.radians(a[0])/2.))
+        mercb = math.log(math.tan(math.pi/4 + math.radians(b[0])/2.))
+        mercmid = .5*(merca + mercb)
+        midlat = math.degrees(2*math.atan(math.exp(mercmid)) - math.pi/2)
+        midlon = geodesy.anglenorm(a[1] + .5*geodesy.anglenorm(b[1] - a[1]))
+        return (midlat, midlon)
+    
+    MIN_SEG_LENGTH = 1. # m
+
+    def interim_points(start, end):
+        if geodesy.distance(start, end) < MIN_SEG_LENGTH:
+            return
+
+        mid = midpoint(start, end)
+        merc_mid = merc_midpoint(start, end)
+        if geodesy.distance(mid, merc_mid) <= tolerance:
+            return
+
+        for p in interim_points(start, mid):
+            yield p
+        yield mid
+        for p in interim_points(mid, end):
+            yield p
         
+    yield start
+    for p in interim_points(start, end):
+        yield p
+    yield end
+
+def make_mercator_safe(postings, tolerance):
+    yield postings[0]
+    for a, b in pairwise_postings(postings):
+        for p in list(mercator_safe_linear_segment(a, b, tolerance))[1:]:
+            yield p
+
 COLOR_CACHE = {}
 
 def color_ramp(hue, lummin, lummax, satmin, satmax, num_steps=1000):
@@ -735,6 +877,7 @@ if __name__ == "__main__":
         (r'/', OutputListHandler),
         (r'/render/(?P<tag>.*)', RenderHandler, {}, 'render'),
         (r'/kml/(?P<tag>.*)', KmlHandler, {}, 'kml'),
+        (r'/geojson/(?P<tag>.*)', GeojsonHandler, {}, 'geojson'),
         (r'/landfall', LandfallHandler),
         (r'/(.*)', web.StaticFileHandler, {'path': 'static'}),
     ], template_path='templates', debug=True)
