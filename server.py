@@ -636,7 +636,9 @@ class GeojsonHandler(web.RequestHandler):
                     "coordinates": o,
                 },
                 "properties": {
-                    "title": "vantage point"
+                    "title": "vantage point",
+                    "produced_by": "http://mrgris.com/projects/landfall",
+                    "attribution": u'data \xa9 OpenStreetMap contributors',
                 },
             }
         

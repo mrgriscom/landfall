@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
 <Document>
+<description>
+Produced by: http://mrgris.com/projects/landfall
+data &#xa9; OpenStreetMap contributors
+</description>
 <Placemark>
   <name>vantage point</name>
   <Point>
@@ -11,8 +15,8 @@
 <name>line segments</name>
 {% for seg in segments %}
   <Placemark>
-	<Style><LineStyle><color>{{ seg['color'] }}</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
-      <LineString><altitudeMode>clampToGround</altitudeMode><tessellate>1</tessellate>
+    <Style><LineStyle><color>{{ seg['color'] }}</color></LineStyle><PolyStyle><fill>0</fill></PolyStyle></Style>
+    <LineString><altitudeMode>clampToGround</altitudeMode><tessellate>1</tessellate>
 <coordinates>
 {% for p in seg['postings'] %}
 {{ p[1] }},{{ p[0] }}
