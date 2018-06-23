@@ -178,3 +178,31 @@ A landfall panorama may also be exported as KML.
 Use the `photosphere.py` script to turn a panorama image (even one that has been edited with annotations) into a photosphere.
 The `.params` file is needed.
 Do not crop the rendered image.
+
+Limitations for "threading the needle" applications
+===================================================
+
+Landfall's primary goal is to compute 'first-person' views -- that is, all directions from a single coastal point, at a resolution similar to human perception.
+
+It is fun to compute trivia like 'is land X visible from Y', where X and Y are unintuitively far apart and the line of sight between them has to 'thread the needle' between intervening landmasses.
+Landfall can be used to compute and verify such claims, but this is ancillary to its main purpose, so there are several design compromises that make your work cut out for you.
+
+Landfall samples at fixed angular resolution, and tracks the closest land for each bearing.
+This is so the size of the result is bound to the size of your output panorama, not to the complexity of the arbitrarily detailed far-off coastline.
+Narrow passages to farther land will be obscured if they subtend an angle smaller than the min resolution.
+Resolution can be increased as high as you want, but you must decide how much is enough, and your field of view will have to be shrunk accordingly.
+
+Needle-threading is also extremely sensitive to starting position.
+When determining if there is line of sight from X to Y, you don't really care exactly where on X and Y you start/end.
+Landfall is incapable of performing this kind of exhaustive search over a region of coastline (and seems to me like it would be a very difficult algorithm to conceptualize in general).
+So you must hunt manually, trying different vantage points, never sure if you've fully ruled out a possibility.
+
+Landfall also uses a spherical model of the Earth for simplicity, and because the intended use case typically doesn't require enough precision where it makes a difference.
+When dealing with very tight tolerances, accounting for the Earth's true spheroid shape may completely change the result.
+The basic underlying algorithm _is_ compatible, however, with a more complex geodesic calculation, were it to be implemented, though it would slow things down quite a bit.
+
+Then there are considerations of just how precise the coastline source data is, or really ever can be.
+Beyond a certain scale it's meaningless to pinpoint coastline to a single precise line, due to tides, crags, reefs, etc.
+Even if you do successfully find a vantage point that threads the needle, it's still hard to grasp how fragile it is in light of the coastline changing even a little bit.
+
+tl;dr -- while Landfall is probably one of the best tools around for answering these trivia questions, there is still a lot of manual work you have to do yourself if you want to stay intellectually honest about the result.
